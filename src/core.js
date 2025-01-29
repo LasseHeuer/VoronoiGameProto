@@ -13,7 +13,7 @@ const repelThreshold = 60;   // Für "Abstoßung" beim Drücken
 const slowFactor     = 0.2;  // Bremst beim Zu-nah-Sein
 
 // Start-Punkte (zufällig)
-let points = generateRandomPoints(20, 900, 600, 30, 0.2);
+let points = generatePoints(20, 900, 600, 30, 0.2);
 
 // Steuerung Drag & Drop
 let isDragging   = false;
@@ -28,7 +28,7 @@ let clickPos          = [0,0];
     
 let dragStartX = null;
 let dragStartY = null;
-    
+
 let successfulDrag = false;
 let colorSwitchedAutomatically = false;
 
@@ -274,6 +274,11 @@ function polygonArea(poly) {
   return Math.abs(area) / 2;
 }
 
+function generatePoints(num, w, h, margin, spreadFactor) {
+  //return generateRegularPoints(num, w, h, margin);
+  return generateRandomButMirroredPoints(num, w, h, margin, spreadFactor);
+}
+
 // Zufällige Punkte
 function generateRandomPoints(num, w, h, margin, spreadFactor) {
   const arr = [];
@@ -285,6 +290,39 @@ function generateRandomPoints(num, w, h, margin, spreadFactor) {
     const x = margin + rx * (w - 2*margin);
     const y = margin + ry * (h - 2*margin);
     arr.push([x, y]);
+  }
+  return arr;
+}
+
+function generateRandomButMirroredPoints(num, w, h, margin, spreadFactor) {
+  const arr = [];
+  ww = w / 2;
+  for (let i = 0; i < num; i++) {
+    let rx = Math.random();
+    let ry = Math.random();
+    rx = Math.pow(rx, 1 - spreadFactor);
+    ry = Math.pow(ry, 1 - spreadFactor);
+    const x = margin + rx * (ww - 2*margin);
+    const y = margin + ry * (h - 2*margin);
+    arr.push([x, y]);
+    arr.push([w - x, y]);
+  }
+  return arr;
+}
+
+// Reguläre Punkte
+function generateRegularPoints(num, w, h, margin) {
+  const arr = [];
+  const cols = Math.ceil(Math.sqrt(num * w / h));
+  const rows = Math.ceil(num / cols);
+  const spacing = Math.min(w / cols, h / rows);
+
+  for (let i = 0; i < rows; i++) {
+    for (let j = 0; j < cols; j++) {
+      const x = margin + j * spacing + 0.5 * spacing;
+      const y = margin + i * spacing + 0.5 * spacing;
+      arr.push([x, y]);
+    }
   }
   return arr;
 }
@@ -363,7 +401,7 @@ function updateColorsByLargestNeighbor(iterations = 10) {
   let changed = true;
   let count = 0;
 
-  while (changed && count < iterations) {
+  while (changed && (count < iterations)) {
     changed = false;
     count++;
 
@@ -391,15 +429,16 @@ function updateColorsByLargestNeighbor(iterations = 10) {
           bestNeighbor = nb;
         }
       }
-
-      let oldColor = cellColorMap[i].baseColor;
+      if (maxColor !== null)
+        cellColorMap[i].baseColor = maxColor;
+      /* let oldColor = cellColorMap[i].baseColor;
       if (maxColor && oldColor !== maxColor) {
         let allowed = checkHarmonyAllowed(i, bestNeighbor, maxColor);
         if (allowed) {
           cellColorMap[i].baseColor = maxColor;
           changed = true;
         }
-      }
+      } */
     }
   }
 }
@@ -1265,7 +1304,7 @@ waveTypeSel.addEventListener("change", () => {
 });
 cellCountSlider.addEventListener("input", () => {
   const n = parseInt(cellCountSlider.value, 10);
-  points = generateRandomPoints(n, width, height, 30, 0.2);
+  points = generatePoints(n, width, height, 30, 0.2);
     
   // => mehr Iterationen, z.B. 30 anstatt 10, damit die Punkte sich nicht überlappen
   let relaxTimes = (n>50) ? 30 : 10;
