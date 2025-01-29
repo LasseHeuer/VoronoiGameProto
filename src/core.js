@@ -18,6 +18,8 @@ let points = generateRandomPoints(20, 900, 600, 30, 0.2);
 // Steuerung Drag & Drop
 let isDragging   = false;
 let draggedIndex = -1;
+let currentDraggingCell = null;
+let currentDraggingNeighborCell = null;
 
 // Steuerung Klick in Zelle => Ton
 let isMouseDownOnCell = false;
@@ -246,6 +248,20 @@ function drawVoronoi() {
         ctx.fillText(ratio.toFixed(3), textX, textY);
       }
     }
+
+  // draw line to largest neighbor cell:
+  if (currentDraggingCell == null || currentDraggingNeighborCell == null) {
+      return;
+  }
+  let pointA = points[currentDraggingCell];
+  let pointB = points[currentDraggingNeighborCell];
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = "black";
+  ctx.beginPath();
+  ctx.moveTo(pointA[0], pointA[1]);
+  ctx.lineTo(pointB[0], pointB[1]);
+  ctx.stroke();
+  ctx.closePath();
 }
 
 // Polygonfläche (Shoelace)
@@ -340,7 +356,6 @@ function initColorTerritories() {
   }
 }
  
-
 function updateColorsByLargestNeighbor(iterations = 10) {
   const delaunay = d3.Delaunay.from(points);
   const voronoi  = delaunay.voronoi([0, 0, width, height]);
@@ -619,11 +634,19 @@ canvas.addEventListener("mousemove", (e) => {
        }
     }    
     
+  //console.log("Set dragging cell globals:");
+  let largestNeighborID = getLargestNeighbor(draggedIndex).cellID;
+  //console.log(draggedIndex, largestNeighborID);
+  currentDraggingCell = draggedIndex;
+  currentDraggingNeighborCell = getLargestNeighbor(draggedIndex).cellID;
+
   updateDelaunayAndVoronoi();
     
   updateColorsByLargestNeighbor(12);    
-      
-  drawVoronoi();    
+  
+  drawVoronoi();
+
+
 });
 
 canvas.addEventListener("mouseup", () => {
@@ -649,6 +672,8 @@ canvas.addEventListener("mouseup", () => {
   dragToneMap = {};  
     
   successfulDrag = false;
+  currentDraggingCell = null;
+  currentDraggingNeighborCell = null;
 });
 
 // Punkt-in-Polygon
@@ -824,7 +849,26 @@ function spreadNotes(startIdx, mousePos) {
     }
   }
 }
-    
+
+// get largest neighbor for a cell
+function getLargestNeighbor(cellIdx) {
+  const delaunay = d3.Delaunay.from(points);
+  const voronoi = delaunay.voronoi([0, 0, width, height]);
+  const neighbors = delaunay.neighbors(cellIdx);
+  let largestNeighbor = {
+    "cellID": null,
+    "maxArea": 0,
+  }
+  for (const nb of neighbors) {
+    let area = polygonArea(voronoi.cellPolygon(nb));
+    if (area > largestNeighbor.maxArea) {
+      largestNeighbor.cellID = nb;
+      largestNeighbor.maxArea = area;
+    }
+  }
+  return largestNeighbor;
+}
+
 //BFS-artige Ausbreitung der Lautstärke, solange der Nutzer einen Punkt zieht.    
 function spreadDragVolume(startCellIdx) {
   const dragVol = parseFloat(dragVolSlider.value);
@@ -869,6 +913,9 @@ function spreadDragVolume(startCellIdx) {
       }
     }
   }
+
+  //let largestNeighbor = getLargestNeighborForRealYo(startCellIdx);
+
   // Starte / Updatet Ton
   startOrUpdateDragTone(startCellIdx, 1.0);
   startOrUpdateDragTone(largestNeighbor.cellID, 0.5);
