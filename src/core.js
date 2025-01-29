@@ -828,15 +828,21 @@ function spreadNotes(startIdx, mousePos) {
 //BFS-artige Ausbreitung der Lautstärke, solange der Nutzer einen Punkt zieht.    
 function spreadDragVolume(startCellIdx) {
   const dragVol = parseFloat(dragVolSlider.value);
-  const maxDepth = parseInt(spreadDepthSlider.value);
+  const maxDepth = 2;
 
   // BFS
   const delaunay = d3.Delaunay.from(points);
+  const voronoi = delaunay.voronoi([0, 0, width, height]);
   const queue = [];
   const visited = new Set();
 
   queue.push({ idx: startCellIdx, depth: 1 });
   visited.add(startCellIdx);
+
+  let largestNeighbor = {
+    "cellID": null,
+    "maxArea": 0,
+  }
 
   // Wir erzeugen/aktualisieren Töne für jede Zelle im BFS
   while (queue.length > 0) {
@@ -844,12 +850,14 @@ function spreadDragVolume(startCellIdx) {
     const i    = node.idx;
     const d    = node.depth;
     if (d > maxDepth) continue;
+    let area = polygonArea(voronoi.cellPolygon(i));
+    if (area > largestNeighbor.maxArea) {
+      largestNeighbor.cellID = i;
+      largestNeighbor.maxArea = area;
+    }
 
     // volume = (dragVol)^(d-1)
     const volume = Math.pow(dragVol, (d-1));
-
-    // Starte / Updatet Ton
-    startOrUpdateDragTone(i, volume);
 
     // Nachbarn
     if (d < maxDepth) {
@@ -861,6 +869,9 @@ function spreadDragVolume(startCellIdx) {
       }
     }
   }
+  // Starte / Updatet Ton
+  startOrUpdateDragTone(startCellIdx, 1.0);
+  startOrUpdateDragTone(largestNeighbor.cellID, 0.5);
 
   // Alle anderen Töne, die nicht im BFS sind, sollen gestoppt werden
   for (let cellIdxStr in dragToneMap) {
