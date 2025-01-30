@@ -7,17 +7,30 @@
       user-select: none; /* Keine Textselektion beim Ziehen */
     }
 
-    #controls {
+    #settings-panel {
+	  visibility: hidden;
       position: absolute;
       top: 0;
       left: 0;
-      width: 260px;
+	  /*width: 260px;*/
+	  width: auto;
       background: rgba(255,255,255,0.85);
       padding: 16px 20px;
       border-bottom-right-radius: 10px;
       font-size: 13px;
       z-index: 10;
     }
+
+	/* #show-settings-panel-button { */
+	/* 	visibility: hidden; */
+	/* } */
+	.settings-section {
+		border-bottom-style: solid;
+		border-top-style: solid;
+		border-color: grey;
+		border-bottom-width: 2px;
+		border-radius: 5px;
+	}
 
     .slider-row {
       margin-bottom: 12px;
