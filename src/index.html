@@ -2,60 +2,76 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8"/>
-  <title>Voronoi: Farbe & Ton mit Ausbreitung & Limiter + Highlight</title>
+  <title>VoronoiGameProto </title>
   <link rel="stylesheet" href="style.css">
-  <!-- d3-delaunay-Bibliothek -->
-  
+  <script lang="js">
+	document.addEventListener('DOMContentLoaded', event => { 
+		console.log("init");
+		settingsPanel = document.getElementById("settings-panel");
+		settingsPanelShowButton = document.getElementById("show-settings-panel-button");
+		settingsPanelHideButton = document.getElementById("hide-settings-panel-button");
+		settingsPanelHideButton.addEventListener("click", () => {
+			console.log("hide");
+			settingsPanel.style.visibility='hidden';
+			settingsPanelShowButton.style.visibility='visible';
+		})
+		settingsPanelShowButton.addEventListener("click", () => {
+			settingsPanel.style.visibility='visible';
+			settingsPanelShowButton.style.visibility='hidden';
+		})
+	});
+  </script>
 </head>
 <body>
 
-<!-- Steuer-Panel -->
-<div id="controls">
-  <!-- WAVEFORM-Auswahl -->
-  <div class="slider-row">
-    <label for="waveType">Wave:</label>
-    <select id="waveType">
-      <option value="triangle">Triangle</option>    
-      <option value="sine">Sine</option>
-      <option value="square">Square</option>
-      <option value="sawtooth">Sawtooth</option>
-    </select>
-  </div>
+<button id="show-settings-panel-button">Show Settings</button>
+<div id="settings-panel">
+  <button id="hide-settings-panel-button">Hide Settings</button>
+  <div class="settings-section">
+	  <b>Synth Settings</b><br />
+		<label for="waveType">Wave:</label>
+		<select id="waveType">
+		<option value="triangle">Triangle</option>    
+		<option value="sine">Sine</option>
+		<option value="square">Square</option>
+		<option value="sawtooth">Sawtooth</option>
+		</select>
 
-  <!-- ADSR -->
-  <div class="slider-row">
-    <label for="attackSlider">Attack</label>
-    <input type="range" id="attackSlider" min="0.0" max="3.0" step="0.01" value="0.05">
-  </div>
-  <div class="slider-row">
-    <label for="decaySlider">Decay</label>
-    <input type="range" id="decaySlider" min="0.0" max="3.0" step="0.01" value="0.2">
-  </div>
-  <div class="slider-row">
-    <label for="sustainSlider">Sustain</label>
-    <input type="range" id="sustainSlider" min="0.0" max="1.0" step="0.01" value="0.2">
-  </div>
-  <div class="slider-row">
-    <label for="releaseSlider">Release</label>
-    <input type="range" id="releaseSlider" min="0.0" max="3.0" step="0.01" value="0.1">
-  </div>
+		<!-- ADSR -->
+	<div class="slider-row">
+		<label for="attackSlider">Attack</label>
+		<input type="range" id="attackSlider" min="0.0" max="3.0" step="0.01" value="0.05">
+	</div>
+	<div class="slider-row">
+		<label for="decaySlider">Decay</label>
+		<input type="range" id="decaySlider" min="0.0" max="3.0" step="0.01" value="0.2">
+	</div>
+	<div class="slider-row">
+		<label for="sustainSlider">Sustain</label>
+		<input type="range" id="sustainSlider" min="0.0" max="1.0" step="0.01" value="0.2">
+	</div>
+	<div class="slider-row">
+		<label for="releaseSlider">Release</label>
+		<input type="range" id="releaseSlider" min="0.0" max="3.0" step="0.01" value="0.1">
+	</div>
 
-  <!-- Filter -->
-  <div class="slider-row">
-    <label for="cutoffSlider">Synth Cutoff</label>
-    <input type="range" id="cutoffSlider" min="100" max="1000" step="1" value="500">
-  </div>
-    
-  <div class="slider-row">
-      <label for="dragToneVolumeSlider">DragTone-Volume</label>
-      <input type="range" id="dragToneVolumeSlider" min="0" max="1" step="0.01" value="0.2">
-    </div>   
-    
-    <div class="slider-row">
-      <label for="dragVolSlider">DragTone-Nachbar-Faktor</label>
-      <input type="range" id="dragVolSlider" min="0" max="1" step="0.01" value="0.25">
-    </div>
+	<!-- Filter -->
+	<div class="slider-row">
+		<label for="cutoffSlider">Synth Cutoff</label>
+		<input type="range" id="cutoffSlider" min="100" max="1000" step="1" value="500">
+	</div>
 
+	<div class="slider-row">
+		<label for="dragToneVolumeSlider">Dragtone Volume</label>
+		<input type="range" id="dragToneVolumeSlider" min="0" max="1" step="0.01" value="0.2">
+	</div>   
+
+	<div class="slider-row">
+		<label for="dragVolSlider">Dragtone Neighbor Factor</label>
+		<input type="range" id="dragVolSlider" min="0" max="1" step="0.01" value="0.25">
+	</div>
+
+  </div>
   <!-- Farbe Threshold (0..1) -->
   <div class="slider-row">
     <label for="colorThresSlider">Farb-Thr</label>
@@ -70,45 +86,45 @@
 
   <!-- TON-AUSBREITUNG (log-scale 0..1 => 50..1000 ms) -->
   <div class="slider-row">
-    <label for="spreadTimeSlider">Ton-delay Nachbarzellen</label>
+    <label for="spreadTimeSlider">Neighbor Spread Tone Delay</label>
     <input type="range" id="spreadTimeSlider" min="0" max="1" step="0.001" value="0.6">
     <!-- value=0.33 ergibt ca. 100 ms -->
   </div>
 
   <!-- AUSBREITUNGSTIEFE (1..6) -->
   <div class="slider-row">
-    <label for="spreadDepthSlider">Nachbarzellen-tiefe</label>
+    <label for="spreadDepthSlider">Neighbor Cell Depth</label>
     <input type="range" id="spreadDepthSlider" min="1" max="6" step="1" value="2">
   </div>    
     
   <div class="slider-row">
-      <label for="cellCountSlider">Zellenmenge</label>
+      <label for="cellCountSlider">Number of Cells</label>
       <input type="range" id="cellCountSlider" min="2" max="100" step="1" value="20">
   </div>
 
   <!-- Schieben Faktor (0..1) -->
   <div class="slider-row">
-    <label for="pushFactorSlider">Push-Faktor</label>
+    <label for="pushFactorSlider">Push Factor</label>
     <input type="range" id="pushFactorSlider" min="0" max="1" step="0.01" value="0.2">
   </div>
 
   <!-- Schieben Radius (5..150 px) -->
   <div class="slider-row">
-    <label for="pushRadiusSlider">Push-Radius</label>
+    <label for="pushRadiusSlider">Push Radius</label>
     <input type="range" id="pushRadiusSlider" min="5" max="150" step="1" value="40">
   </div>
 <div class="slider-row">
-  <label for="boundaryRadiusSlider">Abstand zum Rand</label>
+  <label for="boundaryRadiusSlider">Border Margin</label>
   <input type="range" id="boundaryRadiusSlider" min="5" max="50" step="1" value="25">
 </div>
 
     <div class="slider-row">
-  <label for="sizeInfluenceSlider">Gewichtseinfluss</label>
+  <label for="sizeInfluenceSlider">Weight Influence</label>
   <input type="range" id="sizeInfluenceSlider" min="0" max="1" step="0.01" value="0.95">
 </div>
     
     <div class="slider-row">
-      <label for="harmonyInfluenceSlider">Harmonieeinfluss</label>
+      <label for="harmonyInfluenceSlider">Harmony Influence</label>
       <input type="range" id="harmonyInfluenceSlider" min="0" max="1" step="0.01" value="1">
     </div>
     
