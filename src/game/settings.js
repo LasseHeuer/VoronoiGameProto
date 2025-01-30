@@ -1,4 +1,4 @@
-const config = {
+export const config = {
 	"synth": {
 		"wave": "Triangle",
 		"attack": 0.05,
@@ -19,5 +19,6 @@ const config = {
 	"weightInfluenceFactor": null,
 	"harmonyInfluenceFactor": null,
 	"alternateMoves": true,
-	"showFrequencyRatios": true
+	"showFrequencyRatios": true,
+	"spreadFactor": 0.2
 }
