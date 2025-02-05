@@ -469,7 +469,7 @@ function computeCellWeights(iterations=5) {
       let myColor = cellColorMap[i].baseColor;
       if (!myColor) continue;
       for (let nb of delaunay.neighbors(i)) {
-        if (cellColorMap[nb].baseColor===myColor && isHarmonic(i, nb)) {
+        if (cellColorMap[nb].baseColor===myColor) {
           // Größeres Gewicht gewinnt
           let bigger = Math.max(weight[i], weight[nb]);
           if (weight[i]!==bigger) {
@@ -486,27 +486,6 @@ function computeCellWeights(iterations=5) {
   }
   return weight;
 }
-  
-    
-function checkHarmonyAllowed(cellIdx, neighborIdx, candidateColor) {
-  let h = parseFloat(harmonyInfluenceSlider.value);
-  if (h <= 0) return true;  // Kein Einfluss
-  if (!isHarmonic(cellIdx, neighborIdx)) return true;
-
-  const delaunay = d3.Delaunay.from(points);
-  const voronoi  = delaunay.voronoi([0, 0, width, height]);
-  let polyN = voronoi.cellPolygon(neighborIdx);
-  let polyC = voronoi.cellPolygon(cellIdx);
-  if (!polyN || !polyC) return true;
-  
-  let neighborArea = Math.abs(polygonArea(polyN));
-  let myArea = Math.abs(polygonArea(polyC));
-
-  // Bei vollem Einfluss (h=1) wird nur gewechselt,
-  // wenn der Nachbar signifikant größer ist.
-  // Lineare Gewichtung: je höher h, desto schwieriger der Wechsel.
-  return neighborArea > myArea * (1 - h);
-}    
 
 /**
  * Wir sammeln "Frontlinien" in einem globalen Set "frontEdges",
@@ -1231,28 +1210,6 @@ function scheduleNoteForCell(cellIdx, startTime) {
 function stopNote() {
   // Falls globale Stop-Funktion nötig: 
   // Hier nicht implementiert, Töne enden automatisch.
-}
-
-// ===============================================
-// 6) Hilfsfunktionen
-// ===============================================
-function isHarmonic(cellA, cellB) {
-  // hole Frequenz A, B => getCellFrequency(cellA), getCellFrequency(cellB)
-  let fA = getCellFrequency(cellA);
-  let fB = getCellFrequency(cellB);
-  let ratio = fA/fB;
-  // check ob ratio ~ p/q 
-  // wir testen p,q in [1..5] oder so + Toleranz?
-  for (let p=1; p<=5; p++){
-    for (let q=1; q<=5; q++){
-      let target = p/q;
-      let diff = Math.abs(ratio - target);
-      if (diff<0.05) {
-        return true;
-      }
-    }
-  }
-  return false;
 }
     
 function getCutoffValue() {
