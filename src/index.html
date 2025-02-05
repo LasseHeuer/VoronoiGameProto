@@ -5,15 +5,18 @@
   <title>VoronoiGameProto </title>
   <link rel="stylesheet" href="style.css">
 <script src="https://d3js.org/d3-delaunay.v6.min.js" defer></script>
-<script src="core.js" defer></script>
+<!-- <script src="core.js" defer></script> -->
+<link rel="modulepreload" crossorigin="*" href="./game/main.js">
+<!-- <link rel="Modulepreload" crossorigin href="./game/settings.js"> -->
+<!-- <link rel="Modulepreload" crossorigin href="./game/levelgenerator.js"> -->
+<script src="game/main.js" lang="js" defer></script>
   <script lang="js">
+	// show/hide settings panel
 	document.addEventListener('DOMContentLoaded', event => { 
-		console.log("init");
 		settingsPanel = document.getElementById("settings-panel");
 		settingsPanelShowButton = document.getElementById("show-settings-panel-button");
 		settingsPanelHideButton = document.getElementById("hide-settings-panel-button");
 		settingsPanelHideButton.addEventListener("click", () => {
-			console.log("hide");
 			settingsPanel.style.visibility='hidden';
 			settingsPanelShowButton.style.visibility='visible';
 		})
