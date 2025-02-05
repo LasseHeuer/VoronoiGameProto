@@ -666,10 +666,17 @@ canvas.addEventListener("mousemove", (e) => {
        );
        const MOVE_THRESHOLD = 1; // Minimalbewegung in Pixel
        if (movedDistance > MOVE_THRESHOLD && currentColor && currentColor !== activeColor) {
-         isDragging = false;
-         draggedIndex = -1;
-         activeColor = currentColor;  // Wechsel zur neuen Farbe
-         colorSwitchedAutomatically = true;
+         // 1. Stoppe alle aktiven Drag-Töne
+        for (let cellIdxStr in dragToneMap) {
+          stopDragTone(parseInt(cellIdxStr));
+        }
+        dragToneMap = {};  // Sicherstellen, dass keine alten Töne weiterlaufen
+        
+        isDragging = false;
+        draggedIndex = -1;
+        activeColor = currentColor;  // Wechsel zur neuen Farbe
+        colorSwitchedAutomatically = true;
+        playColorChangeTone();
        }
     }    
     
@@ -1064,6 +1071,29 @@ function stopDragTone(cellIdx) {
     // Remove from map
     delete dragToneMap[cellIdx];
   }
+}
+
+function playColorChangeTone() {
+  // Erstelle einen Oszillator und ein GainNode
+  const osc = audioCtx.createOscillator();
+  const gainNode = audioCtx.createGain();
+  
+  // Setze Oszillator-Parameter: 60 Hz, Sine-Wave (oder einen anderen Typ)
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(60, audioCtx.currentTime);
+  
+  // Setze den Gain, z.B. 0.5 als Lautstärke (kann angepasst werden)
+  gainNode.gain.setValueAtTime(0.5, audioCtx.currentTime);
+  
+  // Verkabelung: Oszillator -> Gain -> Limiter -> Audioausgang
+  osc.connect(gainNode);
+  gainNode.connect(limiterNode);
+  
+  // Starte den Oszillator
+  osc.start();
+  
+  // Stoppe den Ton nach 0.2 Sekunden (oder passe die Dauer nach Bedarf an)
+  osc.stop(audioCtx.currentTime + 1);
 }
 
 //Liest die Frequenz einer Zelle analog zu scheduleNoteForCell
