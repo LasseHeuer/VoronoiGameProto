@@ -699,7 +699,8 @@ canvas.addEventListener("mousemove", (e) => {
 
 });
 
-canvas.addEventListener("mouseup", () => {
+canvas.addEventListener("mouseup", (e) => {
+	idx = draggedIndex;
   isDragging   = false;
   draggedIndex = -1;
     
@@ -724,6 +725,8 @@ canvas.addEventListener("mouseup", () => {
   successfulDrag = false;
   currentDraggingCell = null;
   currentDraggingNeighborCell = null;
+    // Ausbreitung starten:
+    spreadNotes(idx, getMousePos(e));
 });
 
 // Punkt-in-Polygon
@@ -844,6 +847,9 @@ function spreadNotes(startIdx, mousePos) {
   const spreadSec = spreadMs / 1000.0;
 
   // Speichere die Startfarbe der angeklickten Zelle
+	if (!(startIdx in cellColorMap))
+		// color of cell has changed during dragging
+		return;
   let startingColor = cellColorMap[startIdx].baseColor;
 
   const queue = [];
