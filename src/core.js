@@ -432,7 +432,174 @@ function getClippedPolygon(cellPoly) {
   return clipPolygonToRect(cellPoly, 0, 0, width, height);
 }
 
-function getVisibleArea(cellIdx) {
+function clipPolygonByPolygon(subjectPoly, clipPoly) {
+  let outputList = subjectPoly;
+  // clipPoly wird hier als "Clipping Polygon" genutzt
+  // Wir gehen über alle Kanten des Clipping-Polygons
+  for (let i = 0; i < clipPoly.length; i++) {
+    const p1 = clipPoly[i];
+    const p2 = clipPoly[(i + 1) % clipPoly.length];
+    const edge = {
+      inside: p => {
+        // Bestimme, ob Punkt p links von der Kante (p1->p2) liegt.
+        // Bei konvexen Polygonen reicht das.
+        return ((p2[0] - p1[0]) * (p[1] - p1[1]) - (p2[1] - p1[1]) * (p[0] - p1[0])) >= 0;
+      },
+      intersect: (p, q) => {
+        // Berechne Schnittpunkt zwischen der Kante (p->q) und der aktuellen Kante (p1->p2)
+        const A1 = q[1] - p[1];
+        const B1 = p[0] - q[0];
+        const C1 = A1 * p[0] + B1 * p[1];
+        
+        const A2 = p2[1] - p1[1];
+        const B2 = p1[0] - p2[0];
+        const C2 = A2 * p1[0] + B2 * p1[1];
+        
+        const det = A1 * B2 - A2 * B1;
+        if (det === 0) {
+          return p; // Linien parallel – gib p zurück
+        } else {
+          const x = (B2 * C1 - B1 * C2) / det;
+          const y = (A1 * C2 - A2 * C1) / det;
+          return [x, y];
+        }
+      }
+    };
+
+    const inputList = outputList;
+    outputList = [];
+    if (!inputList.length) break;
+
+    let prevPoint = inputList[inputList.length - 1];
+    for (let j = 0; j < inputList.length; j++) {
+      const currentPoint = inputList[j];
+      const currentInside = edge.inside(currentPoint);
+      const prevInside = edge.inside(prevPoint);
+      
+      if (prevInside && currentInside) {
+        outputList.push(currentPoint);
+      } else if (prevInside && !currentInside) {
+        outputList.push(edge.intersect(prevPoint, currentPoint));
+      } else if (!prevInside && currentInside) {
+        outputList.push(edge.intersect(prevPoint, currentPoint));
+        outputList.push(currentPoint);
+      }
+      prevPoint = currentPoint;
+    }
+  }
+  return outputList;
+}
+
+function polygonPerimeter(poly) {
+  let perim = 0;
+  for (let i = 0; i < poly.length; i++) {
+    const j = (i + 1) % poly.length;
+    const dx = poly[j][0] - poly[i][0];
+    const dy = poly[j][1] - poly[i][1];
+    perim += Math.sqrt(dx*dx + dy*dy);
+  }
+  return perim;
+}
+
+/* function visibleCommonEdgeLength(cellIdxA, cellIdxB) {
+  // Hole die Voronoi-Polygone für beide Zellen und clippe sie an den Canvas
+  const delaunay = d3.Delaunay.from(points);
+  const voronoi  = delaunay.voronoi([0, 0, width, height]);
+  
+  let polyA = voronoi.cellPolygon(cellIdxA);
+  let polyB = voronoi.cellPolygon(cellIdxB);
+  if (!polyA || !polyB) return 0;
+  
+  const visPolyA = getClippedPolygon(polyA);
+  const visPolyB = getClippedPolygon(polyB);
+  
+  // Berechne die Schnittmenge (Intersektion) der beiden sichtbaren Polygone
+  const interPoly = clipPolygonByPolygon(visPolyA, visPolyB);
+  
+  // Falls die Schnittmenge weniger als 2 Punkte hat, gibt es keine gemeinsame Kante.
+  if (interPoly.length < 2) return 0;
+  
+  // Für einen typischen gemeinsamen Rand (als Linie) enthält interPoly zwei Punkte.
+  // Falls mehr Punkte vorhanden sind, summieren wir die Randlängen.
+  return polygonPerimeter(interPoly);
+} */
+
+function visibleCommonEdgeLength(cellIdxA, cellIdxB) {
+  // Verwende den gecachten Delaunay/Voronoi-Graph
+  if (!cachedDelaunay || !cachedVoronoi) {
+    updateDelaunayAndVoronoi();
+  }
+  
+  let polyA = cachedVoronoi.cellPolygon(cellIdxA);
+  let polyB = cachedVoronoi.cellPolygon(cellIdxB);
+  if (!polyA || !polyB) return 0;
+  
+  const visPolyA = getClippedPolygon(polyA);
+  const visPolyB = getClippedPolygon(polyB);
+  
+  // Berechne die Schnittmenge der beiden sichtbaren Polygone
+  const interPoly = clipPolygonByPolygon(visPolyA, visPolyB);
+  
+  if (interPoly.length < 2) return 0;
+  
+  return polygonPerimeter(interPoly);
+}
+
+/* function getVisibleNeighbors(cellIdx, minEdgeLength = 5) {
+  const visibleNeighbors = [];
+  const delaunay = d3.Delaunay.from(points);
+  
+  for (let nb of delaunay.neighbors(cellIdx)) {
+    // Falls Dummy-Punkte in deinem Setup enthalten sind, kannst du hier filtern:
+    if (nb >= points.length) continue;
+    
+    const commonEdge = visibleCommonEdgeLength(cellIdx, nb);
+    if (commonEdge >= minEdgeLength) {
+      visibleNeighbors.push(nb);
+    }
+  }
+  return visibleNeighbors;
+} */
+
+function getVisibleNeighbors(cellIdx, minEdgeLength = 5) {
+  const visibleNeighbors = [];
+  // Verwende den gecachten Delaunay-Graph:
+  if (!cachedDelaunay) {
+    updateDelaunayAndVoronoi();
+  }
+  
+  for (let nb of cachedDelaunay.neighbors(cellIdx)) {
+    // Falls Dummy-Punkte enthalten sind, filtern wir sie:
+    if (nb >= points.length) continue;
+    
+    const commonEdge = visibleCommonEdgeLength(cellIdx, nb);
+    if (commonEdge >= minEdgeLength) {
+      visibleNeighbors.push(nb);
+    }
+  }
+  return visibleNeighbors;
+}
+
+function getMaxCommonEdgeLengthForColor(cellIdx, targetColor) {
+  // Verwende den gecachten Delaunay-Graph, damit Dummy-Punkte und Clipping konsistent sind.
+  if (!cachedDelaunay || !cachedVoronoi) {
+    updateDelaunayAndVoronoi();
+  }
+  let maxEdge = 0;
+  for (let nb of cachedDelaunay.neighbors(cellIdx)) {
+    // Falls Dummy-Punkte dabei sind, überspringen
+    if (nb >= points.length) continue;
+    // Nur Nachbarn mit der gewünschten Farbe berücksichtigen
+    if (cellColorMap[nb].baseColor !== targetColor) continue;
+    let commonEdge = visibleCommonEdgeLength(cellIdx, nb);
+    if (commonEdge > maxEdge) {
+      maxEdge = commonEdge;
+    }
+  }
+  return maxEdge;
+}
+
+/* function getVisibleArea(cellIdx) {
   // Erzeuge Voronoi (oder verwende den bereits gecachten, falls möglich)
   const delaunay = d3.Delaunay.from(points);
   const voronoi  = delaunay.voronoi([0, 0, width, height]);
@@ -445,27 +612,39 @@ function getVisibleArea(cellIdx) {
   
   // Fläche des sichtbaren Bereichs berechnen
   return Math.abs(polygonArea(visiblePoly));
+} */
+
+function getVisibleArea(cellIdx) {
+  // Verwende den gecachten Voronoi-Graph, der in updateDelaunayAndVoronoi() erstellt wurde.
+  if (!cachedVoronoi) {
+    updateDelaunayAndVoronoi();
+  }
+  let cellPoly = cachedVoronoi.cellPolygon(cellIdx);
+  if (!cellPoly) return 0;
+  
+  // Clipping des Polygons an den Canvas-Rand
+  let visiblePoly = getClippedPolygon(cellPoly);
+  
+  // Fläche des sichtbaren Bereichs berechnen
+  return Math.abs(polygonArea(visiblePoly));
 }
 
 function updateColorsByLargestNeighbor(iterations = 10) {
-  const delaunay = d3.Delaunay.from(points);
-  const voronoi  = delaunay.voronoi([0, 0, width, height]);
+  if (!cachedDelaunay || !cachedVoronoi) {
+    updateDelaunayAndVoronoi();
+  }
 
   let changed = true;
   let count = 0;
 
-  while (changed && (count < iterations)) {
+  while (changed && count < iterations) {
     changed = false;
     count++;
 
     let cellList = [];
     for (let i = 0; i < points.length; i++){
-
+      // Verwende getVisibleArea statt der unbeschnittenen Fläche
       let a = getVisibleArea(i);
-
-      /* let poly = voronoi.cellPolygon(i);
-      let a = poly ? Math.abs(polygonArea(poly)) : 0; */
-
       cellList.push({ idx: i, area: a });
     }
     cellList.sort((a, b) => b.area - a.area);
@@ -474,21 +653,20 @@ function updateColorsByLargestNeighbor(iterations = 10) {
       let i = obj.idx;
       let maxA = -1;
       let maxColor = null;
-      let bestNeighbor = null;
-
-      for (let nb of delaunay.neighbors(i)) {
-        //Ignoriere Dummy Punkte
-        if (nb >= points.length) continue;
-        
+      // Nutze die sichtbaren Nachbarn (berechnet mit getVisibleNeighbors)
+      let visNeighbors = getVisibleNeighbors(i);
+      for (let nb of visNeighbors) {
+        // Hier: statt der reinen polygonArea des raw Polygons, verwende getVisibleArea
         let aNb = getVisibleArea(nb);
         if (aNb > maxA && cellColorMap[nb].baseColor) {
           maxA = aNb;
           maxColor = cellColorMap[nb].baseColor;
-          bestNeighbor = nb;
         }
       }
-      if (maxColor !== null)
+      if (maxColor !== null && cellColorMap[i].baseColor !== maxColor) {
         cellColorMap[i].baseColor = maxColor;
+        changed = true;
+      }
     }
   }
 }
@@ -945,7 +1123,7 @@ function getLargestNeighbor(cellIdx) {
     "maxArea": 0,
   }
   for (const nb of neighbors) {
-    let area = polygonArea(voronoi.cellPolygon(nb));
+    let area = getVisibleArea(nb);
     if (area > largestNeighbor.maxArea) {
       largestNeighbor.cellID = nb;
       largestNeighbor.maxArea = area;
