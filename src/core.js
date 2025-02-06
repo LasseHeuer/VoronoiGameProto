@@ -74,6 +74,7 @@ const sizeInfluenceSlider = document.getElementById("sizeInfluenceSlider");
 const harmonyInfluenceSlider = document.getElementById("harmonyInfluenceSlider");
 const alternatingMovesCheckbox = document.getElementById("alternatingMovesCheckbox");
 const freqRatiosCheckbox = document.getElementById("freqRatiosCheckbox");
+const dummyPointsCheckbox = document.getElementById("dummyPointsCheckbox");
     
 let activeColor = null;
     
@@ -83,6 +84,11 @@ let cachedVoronoi = null;
 // Erzeuge Dummy-Punkte entlang der Ränder
 const dummySpacing = 50; // Abstand zwischen Dummy-Punkten
 const dummyMargin = 30; // Abstand außerhalb des Canvas
+
+dummyPointsCheckbox.addEventListener("change", () => {
+  updateDelaunayAndVoronoi();
+  drawVoronoi();
+});
 
 function generateDummyPoints(width, height, spacing, margin) {
   let dPoints = [];
@@ -99,7 +105,7 @@ let dummyPoints = generateDummyPoints(width, height, dummySpacing, dummyMargin);
 
 
 function updateDelaunayAndVoronoi() {
-  let allPoints = points.concat(dummyPoints); 
+  let allPoints = dummyPointsCheckbox.checked ? points.concat(dummyPoints) : points; 
   cachedDelaunay = d3.Delaunay.from(allPoints);
   cachedVoronoi = cachedDelaunay.voronoi([0, 0, width, height]);
 }
@@ -204,49 +210,6 @@ function drawVoronoi() {
         ctx.fillStyle = "black";
       }
       ctx.fill();
-    }
-    
-    if (freqRatiosCheckbox.checked) {
-      // Gruppiere Zellen nach Farbe und bestimme die größte Zelle je Gruppe
-      let groups = {};
-      for (let i = 0; i < points.length; i++) {
-        let color = cellColorMap[i] ? cellColorMap[i].baseColor : null;
-        if (!color) continue;
-        let cellPoly = cachedVoronoi.cellPolygon(i);
-        if (!cellPoly) continue;
-        let area = Math.abs(polygonArea(cellPoly));
-        // Speichere die größte Zelle für jede Farbe
-        if (!groups[color] || area > groups[color].area) {
-          groups[color] = { index: i, area: area, freq: getCellFrequency(i) };
-        }
-      }
-
-      ctx.font = "12px sans-serif";
-      ctx.fillStyle = "blue";
-
-      // Zeige für jede Zelle ihr Frequenzverhältnis zur größten Zelle der gleichen Farbe an
-      for (let i = 0; i < points.length; i++) {
-        let color = cellColorMap[i] ? cellColorMap[i].baseColor : null;
-        if (!color || !groups[color]) continue;
-        let cellPoly = cachedVoronoi.cellPolygon(i);
-        if (!cellPoly) continue;
-        let cellFreq = getCellFrequency(i);
-        let ratio = cellFreq / groups[color].freq;
-
-        // Berechne geometrischen Mittelpunkt der Zelle
-        let centroid = [0, 0];
-        for (let v of cellPoly) {
-          centroid[0] += v[0];
-          centroid[1] += v[1];
-        }
-        centroid[0] /= cellPoly.length;
-        centroid[1] /= cellPoly.length;
-
-        // Zeichne den Text 10px neben dem Mittelpunkt
-        let textX = centroid[0] + 10;
-        let textY = centroid[1] + 10;
-        ctx.fillText(ratio.toFixed(3), textX, textY);
-      }
     }
 
   // draw line to largest neighbor cell:
@@ -393,7 +356,97 @@ function initColorTerritories() {
     activeColor = cellColorMap[big1].baseColor;
   }
 }
- 
+
+// Clipping eines Polygons an ein rechteckiges Gebiet (z.B. Canvas)
+function clipPolygonToRect(polygon, xMin, yMin, xMax, yMax) {
+  let outputList = polygon;
+
+  // Hilfsfunktion: Schneidet einen Polygonrand entlang einer Kante
+  function clipEdge(polygon, edge) {
+    const inputList = polygon;
+    const outputList = [];
+    for (let i = 0; i < inputList.length; i++) {
+      const currentPoint = inputList[i];
+      const prevPoint = inputList[(i - 1 + inputList.length) % inputList.length];
+      const currentInside = edge.inside(currentPoint);
+      const prevInside = edge.inside(prevPoint);
+      
+      if (prevInside && currentInside) {
+        // Beide Punkte innen: Füge aktuellen Punkt hinzu
+        outputList.push(currentPoint);
+      } else if (prevInside && !currentInside) {
+        // Austritt: Füge Schnittpunkt hinzu
+        outputList.push(edge.intersect(prevPoint, currentPoint));
+      } else if (!prevInside && currentInside) {
+        // Eintritt: Füge Schnittpunkt und aktuellen Punkt hinzu
+        outputList.push(edge.intersect(prevPoint, currentPoint));
+        outputList.push(currentPoint);
+      }
+      // Wenn beide außen, füge nichts hinzu.
+    }
+    return outputList;
+  }
+
+  // Definiere die vier Kanten des Rechtecks als Objekte mit zwei Funktionen: inside() und intersect()
+  const edges = [
+    { // Linke Kante: x >= xMin
+      inside: p => p[0] >= xMin,
+      intersect: (p1, p2) => {
+        const t = (xMin - p1[0]) / (p2[0] - p1[0]);
+        return [xMin, p1[1] + t * (p2[1] - p1[1])];
+      }
+    },
+    { // Rechte Kante: x <= xMax
+      inside: p => p[0] <= xMax,
+      intersect: (p1, p2) => {
+        const t = (xMax - p1[0]) / (p2[0] - p1[0]);
+        return [xMax, p1[1] + t * (p2[1] - p1[1])];
+      }
+    },
+    { // Obere Kante: y >= yMin
+      inside: p => p[1] >= yMin,
+      intersect: (p1, p2) => {
+        const t = (yMin - p1[1]) / (p2[1] - p1[1]);
+        return [p1[0] + t * (p2[0] - p1[0]), yMin];
+      }
+    },
+    { // Untere Kante: y <= yMax
+      inside: p => p[1] <= yMax,
+      intersect: (p1, p2) => {
+        const t = (yMax - p1[1]) / (p2[1] - p1[1]);
+        return [p1[0] + t * (p2[0] - p1[0]), yMax];
+      }
+    }
+  ];
+
+  // Wende nacheinander alle Kanten an
+  for (const edge of edges) {
+    outputList = clipEdge(outputList, edge);
+  }
+  
+  return outputList;
+}
+
+// Einfachere Wrapper-Funktion, um das Polygon an den Canvas (0,0,width,height) zu clippen.
+function getClippedPolygon(cellPoly) {
+  return clipPolygonToRect(cellPoly, 0, 0, width, height);
+}
+
+function getVisibleArea(cellIdx) {
+  // Erzeuge Voronoi (oder verwende den bereits gecachten, falls möglich)
+  const delaunay = d3.Delaunay.from(points);
+  const voronoi  = delaunay.voronoi([0, 0, width, height]);
+  
+  let cellPoly = voronoi.cellPolygon(cellIdx);
+  if (!cellPoly) return 0;
+  
+  // Clipping an den Canvas-Rand durchführen
+  let visiblePoly = getClippedPolygon(cellPoly);
+  
+  // Fläche des sichtbaren Bereichs berechnen
+  return Math.abs(polygonArea(visiblePoly));
+}
+
 function updateColorsByLargestNeighbor(iterations = 10) {
   const delaunay = d3.Delaunay.from(points);
   const voronoi  = delaunay.voronoi([0, 0, width, height]);
@@ -407,8 +460,12 @@ function updateColorsByLargestNeighbor(iterations = 10) {
 
     let cellList = [];
     for (let i = 0; i < points.length; i++){
-      let poly = voronoi.cellPolygon(i);
-      let a = poly ? Math.abs(polygonArea(poly)) : 0;
+
+      let a = getVisibleArea(i);
+
+      /* let poly = voronoi.cellPolygon(i);
+      let a = poly ? Math.abs(polygonArea(poly)) : 0; */
+
       cellList.push({ idx: i, area: a });
     }
     cellList.sort((a, b) => b.area - a.area);
@@ -420,9 +477,10 @@ function updateColorsByLargestNeighbor(iterations = 10) {
       let bestNeighbor = null;
 
       for (let nb of delaunay.neighbors(i)) {
-        let polyNb = voronoi.cellPolygon(nb);
-        if (!polyNb) continue;
-        let aNb = Math.abs(polygonArea(polyNb));
+        //Ignoriere Dummy Punkte
+        if (nb >= points.length) continue;
+        
+        let aNb = getVisibleArea(nb);
         if (aNb > maxA && cellColorMap[nb].baseColor) {
           maxA = aNb;
           maxColor = cellColorMap[nb].baseColor;
@@ -431,14 +489,6 @@ function updateColorsByLargestNeighbor(iterations = 10) {
       }
       if (maxColor !== null)
         cellColorMap[i].baseColor = maxColor;
-      /* let oldColor = cellColorMap[i].baseColor;
-      if (maxColor && oldColor !== maxColor) {
-        let allowed = checkHarmonyAllowed(i, bestNeighbor, maxColor);
-        if (allowed) {
-          cellColorMap[i].baseColor = maxColor;
-          changed = true;
-        }
-      } */
     }
   }
 }
@@ -1088,31 +1138,6 @@ function rampDownAndStopDragTone(cellIdx) {
   delete dragToneMap[cellIdx];
 }
 
-
-
-//TODO vielleicht löschen
-function playColorChangeTone() {
-  // Erstelle einen Oszillator und ein GainNode
-  const osc = audioCtx.createOscillator();
-  const gainNode = audioCtx.createGain();
-  
-  osc.type = "square";
-  osc.frequency.setValueAtTime(50, audioCtx.currentTime);
-  
-  // Setze den Gain, z.B. 0.5 als Lautstärke (kann angepasst werden)
-  gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
-  
-  // Verkabelung: Oszillator -> Gain -> Limiter -> Audioausgang
-  osc.connect(gainNode);
-  gainNode.connect(limiterNode);
-  
-  // Starte den Oszillator
-  osc.start();
-  
-  // Stoppe den Ton nach 1 Sekunden 
-  osc.stop(audioCtx.currentTime + 1);
-}
-
 //Liest die Frequenz einer Zelle analog zu scheduleNoteForCell
 function getCellFrequency(cellIdx) {
   // Hole Voronoi, area -> ratio -> freq
@@ -1204,7 +1229,7 @@ function scheduleNoteForCell(cellIdx, startTime) {
     end:   stopTime
   };
     
-  console.log("scheduleNoteForCell => start cell ", cellIdx, "time=", startTime);      
+  //console.log("scheduleNoteForCell => start cell ", cellIdx, "time=", startTime);      
 }
 
 function stopNote() {
