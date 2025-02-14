@@ -6,10 +6,16 @@
   <link rel="stylesheet" href="style.css">
 <script src="https://d3js.org/d3-delaunay.v6.min.js" defer></script>
 <!-- <script src="core.js" defer></script> -->
-<link rel="modulepreload" crossorigin="*" href="./game/main.js">
+<!-- <link rel="modulepreload" crossorigin="*" href="./game/main.js"> -->
 <!-- <link rel="Modulepreload" crossorigin href="./game/settings.js"> -->
 <!-- <link rel="Modulepreload" crossorigin href="./game/levelgenerator.js"> -->
-<script src="game/main.js" lang="js" defer></script>
+<script src="game/Point.js" lang="js" ></script>
+<script src="game/GameState.js" lang="js" ></script>
+<script src="game/levelgenerators.js" lang="js" ></script>
+<script src="game/settings.js" lang="js" ></script>
+<script src="game/engine.js" lang="js" ></script>
+<script src="game/main.js" lang="js" ></script>
+
   <script lang="js">
 	// show/hide settings panel
 	document.addEventListener('DOMContentLoaded', event => { 
@@ -27,7 +33,7 @@
 	});
   </script>
 </head>
-<body>
+<body onload="start()">
 
 <button id="show-settings-panel-button">Show Settings</button>
 <div id="settings-panel">

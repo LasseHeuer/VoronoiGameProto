@@ -1,4 +1,4 @@
-export default const config = {
+const config = {
 	"synth": {
 		"wave": "Triangle",
 		"attack": 0.05,

@@ -2,8 +2,10 @@
   Entry point of the game. Connect ui-elements to the engine.
 */
 
-import { Game } from './engine.js';
 
-const canvas = document.getElementById("voronoiCanvas");
-
-console.log("Starting Voronoi Game Prototype!")
+function start() {
+	console.log("Starting Voronoi Game Prototype!")
+	const canvas = document.getElementById("voronoiCanvas");
+	const game = new Game(canvas);
+	game.start();
+}

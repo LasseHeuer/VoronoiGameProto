@@ -10,7 +10,7 @@
   margin       -- distance from border
   spreadFactor -- 
  */
-export default function randomLevel(num, w, h, margin, spreadFactor) {
+function randomLevel(num, w, h, margin, spreadFactor) {
   const arr = [];
   for (let i = 0; i < num; i++) {
     let rx = Math.random();
@@ -27,7 +27,7 @@ export default function randomLevel(num, w, h, margin, spreadFactor) {
 /*
   generate random points with mirror symmetry on center y-axis.
  */
-export default function symmetricLevel(num, w, h, margin, spreadFactor) {
+function symmetricLevel(num, w, h, margin, spreadFactor) {
   const arr = [];
   ww = w / 2;
   for (let i = 0; i < num; i++) {
