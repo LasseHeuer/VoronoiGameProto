@@ -7,18 +7,23 @@ const config = {
 		"release": 10,
 		"cutoff": 500,
 	},
-	"dragToneVolume": null,
-	"dragToneNeighborFactor": null,
-	"colorThreshold": null,
-	"freqThreshold": null,
-	"spreadTime": null,
-	"numCells": null,
-	"pushFactor": null,
-	"pushRadius": null,
-	"boundaryMargin": null,
-	"weightInfluenceFactor": null,
-	"harmonyInfluenceFactor": null,
-	"alternateMoves": true,
-	"showFrequencyRatios": true,
-	"spreadFactor": 0.2
+	"game": {
+		"fps": 30
+	},
+	"params": {
+		"dragToneVolume": null,
+		"dragToneNeighborFactor": null,
+		"colorThreshold": null,
+		"freqThreshold": null,
+		"spreadTime": null,
+		"numCells": null,
+		"pushFactor": null,
+		"pushRadius": null,
+		"boundaryMargin": null,
+		"weightInfluenceFactor": null,
+		"harmonyInfluenceFactor": null,
+		"alternateMoves": true,
+		"showFrequencyRatios": true,
+		"spreadFactor": 0.2
+	}
 }

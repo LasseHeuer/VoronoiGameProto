@@ -10,6 +10,7 @@ class Game {
 		this.config = config;
 		this.borderPoints = generateBorderPoints(this.width, this.height, BORDERPOINTSPACING, BORDERPOINTOFFSET);
 		this.initGameState();
+		this.running = false;
 		console.log("New Game started!");
 	}
 
@@ -28,6 +29,24 @@ class Game {
 	}
 
 	start() {
-		
+		this.running = true;
+		while (this.running) {
+			const frameStartTime = Date.now()
+			this.render()
+			const frameEndTime = Date.now()
+			const duration = frameEndTime - frameStartTime
+			const fps = config.game.fps
+			const waitMs = 1/fps * 1000 - duration
+			// await new Promise(r => setTimeout(r, waitMs));
+			// Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, waitMs);
+			this.running = false
+		}
 	}
+
+	render() {
+		//render;
+		this.ctx.clearRect(0, 0, this.width, this.height);
+	}
+
+	
 }
