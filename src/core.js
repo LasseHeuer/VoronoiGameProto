@@ -299,27 +299,20 @@ function initColorTerritories() {
   let areas = [];
   for (let i = 0; i < points.length; i++) {
     const cell = voronoi.cellPolygon(i);
-    if (!cell) {
-      areas[i] = 0;
-    } else {
-      areas[i] = Math.abs(polygonArea(cell));
-    }
+    areas[i] = cell ? Math.abs(polygonArea(cell)) : 0;
   }
 
-  // 2) Sortiere absteigend
-  let sorted = areas.map((val, idx) => ({ val, idx }))
-                    .sort((a, b) => b.val - a.val);
-  if (sorted.length < 2) {
-    // fallback, nicht genug Zellen
-    return;
-  }
+  // 2) Sortiere absteigend nach Fläche
+  let sorted = areas
+    .map((val, idx) => ({ val, idx }))
+    .sort((a, b) => b.val - a.val);
+  if (sorted.length < 2) return; // fallback: nicht genug Zellen
 
   // 3) Wähle big1 = größte Zelle
   let big1 = sorted[0].idx;
 
   // 4) Finde big2 = NICHT benachbart zu big1
   let big2 = sorted[1].idx;
-  // Hole neighbors von big1
   let neighborsOfBig1 = new Set(delaunay.neighbors(big1));
   for (let i = 1; i < sorted.length; i++) {
     const candidate = sorted[i].idx;
@@ -328,55 +321,106 @@ function initColorTerritories() {
       break;
     }
   }
-
   if (big2 === null) {
-    // Alle Kandidaten sind Nachbarn? 
-    // => fallback: nimm z. B. doch den zweitgrößten, oder gib Warnung aus
     console.warn("Keine nicht-benachbarte Zelle für big2 gefunden!");
-    // big2 = sorted[1].idx;  // optional fallback
     return;
   }
 
   // 5) Reset der cellColorMap
   cellColorMap = {};
   for (let i = 0; i < points.length; i++) {
-    cellColorMap[i] = {
-      baseColor: null,
-      locked: false
-    };
+    cellColorMap[i] = { baseColor: null, locked: false };
   }
 
   // 6) Seeds festlegen
   cellColorMap[big1].baseColor = "#FF8BA7"; 
   cellColorMap[big2].baseColor = "#76FFE8";
-    
+  
   // Setze initial activeColor, falls nicht gesetzt.
   if (!activeColor) {
     activeColor = cellColorMap[big1].baseColor;
   }
+
+  // 7) Iteriere, bis die Gesamtflächen beider Farben nahezu gleich sind
+  const tolerance = 0.05 * canvasArea; // z.B. 5% der Gesamtfläche als Toleranz
+  let areaColor1 = 0, areaColor2 = 0;
+  const maxIter = 100;
+  let iter = 0;
+  
+  do {
+    updateColorsByLargestNeighbor(12);
+    areaColor1 = 0;
+    areaColor2 = 0;
+    
+    // Berechne die Gesamtfläche für beide Farben
+    for (let i = 0; i < points.length; i++) {
+      const cellPoly = cachedVoronoi ? cachedVoronoi.cellPolygon(i) : null;
+      const area = cellPoly ? Math.abs(polygonArea(cellPoly)) : 0;
+      if (cellColorMap[i].baseColor === "#FF8BA7") {
+        areaColor1 += area;
+      } else if (cellColorMap[i].baseColor === "#76FFE8") {
+        areaColor2 += area;
+      }
+    }
+    iter++;
+  } while (Math.abs(areaColor1 - areaColor2) > tolerance && iter < maxIter);
 }
 
 function initColorTerritoriesOnNewGame(){
   const n = parseInt(cellCountSlider.value, 10);
-  points = generatePoints(n, width, height, 30, 0.2);
-  
-  // => mehr Iterationen, z.B. 30 anstatt 10, damit die Punkte sich nicht überlappen
-  let relaxTimes = (n>50) ? 30 : 10;
+  const tolerance = 0.05 * canvasArea; // Toleranz: 5% der Canvasfläche
+  let balanced = false;
+  let iterationCount = 0;
+  const maxIterations = 50; // Sicherheitslimit, um Endlosschleifen zu vermeiden
 
-  for (let i = 0; i < relaxTimes; i++) {
-    // Rufe "pushPoints()" in einer "Light-Version", die NICHT computeCellWeights() nutzt.
-    pushPointsNoWeight(); 
-    clampToCanvas();
+  while (!balanced && iterationCount < maxIterations) {
+      // 1) Neue Punkte generieren
+      points = generatePoints(n, width, height, 30, 0.2);
+      
+      // 2) Punkte „entspannen“ (leichte Iterationen, um Überlappungen zu vermeiden)
+      let relaxTimes = (n > 50) ? 30 : 10;
+      for (let i = 0; i < relaxTimes; i++) {
+          pushPointsNoWeight(); 
+          clampToCanvas();
+      }
+      
+      updateDelaunayAndVoronoi();    
+      highlightMap = {};
+      
+      // 3) Farbterritorien initialisieren und Farben propagieren
+      initColorTerritories();
+      updateColorsByLargestNeighbor(12);
+      updateDelaunayAndVoronoi();
+      
+      // 4) Gesamtflächen der beiden Farben berechnen
+      let areaColor1 = 0, areaColor2 = 0;
+      for (let i = 0; i < points.length; i++) {
+          let cell = cachedVoronoi.cellPolygon(i);
+          if (!cell) continue;
+          let visibleCell = getClippedPolygon(cell);
+          let cellArea = Math.abs(polygonArea(visibleCell));
+          if (cellColorMap[i].baseColor === "#FF8BA7") {
+              areaColor1 += cellArea;
+          } else if (cellColorMap[i].baseColor === "#76FFE8") {
+              areaColor2 += cellArea;
+          }
+      }
+      
+      // 5) Prüfen, ob die Flächen nahezu gleich sind
+      if (Math.abs(areaColor1 - areaColor2) <= tolerance) {
+          balanced = true;
+      }
+      
+      iterationCount++;
   }
-
-  updateDelaunayAndVoronoi();    
-    
-  highlightMap = {};
-
-  initColorTerritories();
-  updateColorsByLargestNeighbor(12);
+  
+  if (!balanced) {
+      console.warn("Farbterritorien nicht ausgeglichen nach " + iterationCount + " Iterationen.");
+  }
+  
   drawVoronoi();
 }
+
 
 // Clipping eines Polygons an ein rechteckiges Gebiet (z.B. Canvas)
 function clipPolygonToRect(polygon, xMin, yMin, xMax, yMax) {
