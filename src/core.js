@@ -132,6 +132,14 @@ function updateDelaunayAndVoronoi() {
   cachedVoronoi = cachedDelaunay.voronoi([0, 0, width, height]);
 }
     
+function computeCentroid(poly) {
+  let x = 0, y = 0;
+  for (let i = 0; i < poly.length; i++) {
+    x += poly[i][0];
+    y += poly[i][1];
+  }
+  return { x: x / poly.length, y: y / poly.length };
+}
 
 // ===============================================
 // 2) Voronoi: Zeichnen, Farb- & Frequenzlogik
@@ -144,42 +152,50 @@ function drawVoronoi() {
     updateDelaunayAndVoronoi();
   }
 
-  const now      = audioCtx.currentTime;
+  const now     = audioCtx.currentTime;
   const delaunay = cachedDelaunay;
   const voronoi  = cachedVoronoi;
-  const colorThreshold = parseFloat(colorThresSlider.value);
+  
+  // Definiere den gewünschten Helligkeitsbereich
+  const minLum = 20; // nicht ganz schwarz
+  const maxLum = 80; // nicht ganz weiß
 
+  // Berechne minArea und maxArea über sämtliche Zellen
+  let minArea = Infinity, maxArea = -Infinity;
+  for (let i = 0; i < points.length; i++) {
+    const cell = voronoi.cellPolygon(i);
+    if (cell) {
+      const area = polygonArea(cell);
+      if (area < minArea) minArea = area;
+      if (area > maxArea) maxArea = area;
+    }
+  }
+  // Falls alle Flächen gleich sein sollten
+  if (maxArea === minArea) {
+    minArea = 0;
+    maxArea = 1;
+  }
+  
+  const colorThreshold = parseFloat(colorThresSlider.value);
+  
   for (let i = 0; i < points.length; i++) {
     const cell = voronoi.cellPolygon(i);
     if (!cell) continue;
 
     // Flächenberechnung
     const area = polygonArea(cell);
-    let ratio  = area / canvasArea;
-    if (ratio < 0) ratio = 0;
-    if (ratio > 1) ratio = 1;
-
-    let lum;
-    if (ratio <= colorThreshold) {
-      const t = Math.sqrt(ratio / colorThreshold); 
-      lum = 100 - (100 * t); // 100..0
-    } else {
-      lum = 0; 
-    }
-
+    // Berechne den normierten Wert zwischen 0 und 1
+    const norm = (area - minArea) / (maxArea - minArea);
+    // Jetzt skalieren wir: Kleine Zellen (norm=0) -> maxLum, Große (norm=1) -> minLum
+    const lum = maxLum - (maxLum - minLum) * norm;
     let greyColor = `hsl(0, 0%, ${lum}%)`;
 
-    // Falls cellColorMap[i].baseColor != null => wir mischen
+    // Falls cellColorMap[i].baseColor gesetzt ist, mischen wir diesen mit dem Grauwert
     let baseC = cellColorMap[i].baseColor;
     if (baseC) {
-      // einfache Misch-Logik "multiply" im HSL:
-      // lum => 0% = schwarz, 100% = weiß
-      // wir gehen z.B. von "baseC" in HSL => multiply lum
-      // => wir brauchen ne Hilfsfunktion
       let mixed = mixColorWithGrey(baseC, lum);
       ctx.fillStyle = mixed;
     } else {
-      // kein baseColor => fallback grau
       ctx.fillStyle = greyColor;
     }
 
@@ -190,8 +206,15 @@ function drawVoronoi() {
       ctx.lineTo(cell[j][0], cell[j][1]);
     }
     ctx.closePath();
-    //ctx.fillStyle = fillColor;
     ctx.fill();
+
+    // Fläche als Text in den Zellen mittig anzeigen
+    const centroid = computeCentroid(cell);
+    ctx.fillStyle = "black";
+    ctx.font = "12px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(Math.round(area/10), centroid.x, centroid.y);
 
     // Highlight?
     let isHighlighted = false;
@@ -899,7 +922,7 @@ canvas.addEventListener("mousemove", (e) => {
   } 
 
   // 2) Wechselseitiges Wegdrücken
-  pushPoints();
+  //pushPoints();
 
   // 3) Rand-Kollision an Canvas
   clampToCanvas();
@@ -1568,8 +1591,11 @@ function rgbToHex(r,g,b){
 // 7) Animations-Loop für Echtzeit-Highlight
 // ===============================================
 function animate() {
-  requestAnimationFrame(animate);
+  pushPoints();
+  updateDelaunayAndVoronoi();
+  clampToCanvas();
   drawVoronoi();
+  requestAnimationFrame(animate);
 }
 
 cellCountSlider.addEventListener("input", () => {
