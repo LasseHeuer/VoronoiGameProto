@@ -359,7 +359,7 @@ function initColorTerritories() {
 function initColorTerritoriesOnNewGame(){
   const n = parseInt(cellCountSlider.value, 10);
   points = generatePoints(n, width, height, 30, 0.2);
-    
+  
   // => mehr Iterationen, z.B. 30 anstatt 10, damit die Punkte sich nicht überlappen
   let relaxTimes = (n>50) ? 30 : 10;
 
@@ -1003,7 +1003,8 @@ function pushPointsNoWeight() {
 // 4) AUSBREITUNG: BFS durch Delaunay-Nachbarn
 // ===============================================
 function spreadNotes(startIdx, mousePos) {
-  const delaunay = d3.Delaunay.from(points);
+  updateDelaunayAndVoronoi();
+  const delaunay = cachedDelaunay;
   const maxDepth = parseInt(spreadDepthSlider.value);
   const spreadMs = getSpreadTimeMs();
   const spreadSec = spreadMs / 1000.0;
@@ -1363,14 +1364,7 @@ function scheduleNoteForCell(cellIdx, startTime) {
   highlightMap[cellIdx] = {
     start: startTime,
     end:   stopTime
-  };
-    
-  //console.log("scheduleNoteForCell => start cell ", cellIdx, "time=", startTime);      
-}
-
-function stopNote() {
-  // Falls globale Stop-Funktion nötig: 
-  // Hier nicht implementiert, Töne enden automatisch.
+  };      
 }
     
 function getCutoffValue() {
