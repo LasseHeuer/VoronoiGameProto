@@ -1103,9 +1103,12 @@ function spreadNotes(startIdx, mousePos) {
 
 // get largest neighbor for a cell
 function getLargestNeighbor(cellIdx) {
-  const delaunay = d3.Delaunay.from(points);
+  /* const delaunay = d3.Delaunay.from(points);
   const voronoi = delaunay.voronoi([0, 0, width, height]);
-  const neighbors = delaunay.neighbors(cellIdx);
+  const neighbors = delaunay.neighbors(cellIdx); */
+  updateDelaunayAndVoronoi();
+  const neighbors = cachedDelaunay.neighbors(cellIdx);
+
   let largestNeighbor = {
     "cellID": null,
     "maxArea": 0,
