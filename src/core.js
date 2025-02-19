@@ -7,6 +7,7 @@ const width      = canvas.width;
 const height     = canvas.height;
 const canvasArea = width * height;
 
+
 // Parameter für Drag & Drop + Abstoßung
 const dragRadius     = 10;
 const repelThreshold = 60;   // Für "Abstoßung" beim Drücken
@@ -48,6 +49,14 @@ let currentDraggingOpponentNeighborArea = 0;
 
 // Web Audio
 const audioCtx   = new (window.AudioContext || window.webkitAudioContext)();
+
+// Score globals
+let scorePlayer1 = 0;
+let scorePlayer2 = 0;
+let lastScoreUpdateTime = audioCtx.currentTime;
+const scorePlayer1Span = document.getElementById("scorePlayer1Span");
+const scorePlayer2Span = document.getElementById("scorePlayer2Span");
+
 
 // Globale "Limiter" (Kompressor) gegen Clipping
 const limiterNode = audioCtx.createDynamicsCompressor();
@@ -112,6 +121,7 @@ function getLargestNeighborByColor(cellIdx, targetColor) {
   return largest;
 }
 
+
 function generateDummyPoints(width, height, spacing, margin) {
   let dPoints = [];
   for (let x = -margin; x <= width + margin; x += spacing) {
@@ -139,6 +149,23 @@ function computeCentroid(poly) {
     y += poly[i][1];
   }
   return { x: x / poly.length, y: y / poly.length };
+}
+
+function hexToRgb(hex) {
+  let r = parseInt(hex.slice(1, 3), 16);
+  let g = parseInt(hex.slice(3, 5), 16);
+  let b = parseInt(hex.slice(5, 7), 16);
+  return { r, g, b };
+}
+
+function mixColors(color1, color2, factor) {
+  // factor in [0, 1]: 0 => only color1, 1 => nur color2
+  const rgb1 = hexToRgb(color1);
+  const rgb2 = hexToRgb(color2);
+  const r = Math.round(rgb1.r * (1 - factor) + rgb2.r * factor);
+  const g = Math.round(rgb1.g * (1 - factor) + rgb2.g * factor);
+  const b = Math.round(rgb1.b * (1 - factor) + rgb2.b * factor);
+  return rgbToHex(r, g, b);
 }
 
 // ===============================================
@@ -190,14 +217,40 @@ function drawVoronoi() {
     const lum = maxLum - (maxLum - minLum) * norm;
     let greyColor = `hsl(0, 0%, ${lum}%)`;
 
-    // Falls cellColorMap[i].baseColor gesetzt ist, mischen wir diesen mit dem Grauwert
+    // Basisfarbe (mit Graumischung falls vorhanden)
     let baseC = cellColorMap[i].baseColor;
-    if (baseC) {
-      let mixed = mixColorWithGrey(baseC, lum);
-      ctx.fillStyle = mixed;
-    } else {
-      ctx.fillStyle = greyColor;
+    let myColor = baseC ? mixColorWithGrey(baseC, lum) : greyColor;
+
+    // Finde unter den Nachbarn (mit cachedDelaunay) nur den Gegner, 
+    // also den Nachbarn, dessen Basisfarbe (aus cellColorMap) anders ist, 
+    // und von denen die Zelle mit der größten sichtbaren Fläche auswählen:
+    let enemyCandidate = null;
+    let enemyCandidateArea = 0;
+    for (const nb of cachedDelaunay.neighbors(i)) {
+      if (nb < points.length) {
+        let nbBase = cellColorMap[nb].baseColor;
+        if (nbBase && nbBase !== baseC) {
+          const nbArea = getVisibleArea(nb);
+          if (nbArea > enemyCandidateArea) {
+            enemyCandidateArea = nbArea;
+            enemyCandidate = nbBase;
+          }
+        }
+      }
     }
+
+    // Wenn ein Gegner gefunden wurde, berechne den Mischfaktor basierend auf
+    // dem relativen Flächenvergleich (eigene Fläche vs. gegnerische Fläche)
+    // und mische dann die eigene Farbe mit der des größten Gegnernachbarn.
+    if (enemyCandidate !== null) {
+      const baseMixFactor = 0.6; // maximaler Einfluss (30%)
+      // Dynamischer Anteil: je größer die gegnerische Zelle im Vergleich zur eigenen, desto mehr mischen
+      let mixFactor = baseMixFactor * (enemyCandidateArea / (enemyCandidateArea + area));
+      mixFactor = Math.min(mixFactor, baseMixFactor);
+      myColor = mixColors(myColor, enemyCandidate, mixFactor);
+    }
+
+    ctx.fillStyle = myColor;
 
     // Zelle füllen
     ctx.beginPath();
@@ -974,7 +1027,7 @@ canvas.addEventListener("mousemove", (e) => {
   currentDraggingCell = draggedIndex;
   currentDraggingNeighborCell = getLargestNeighbor(draggedIndex).cellID; */
 
-  let myColor = cellColorMap[draggedIndex].baseColor;
+  let myColor = (cellColorMap[draggedIndex] ? cellColorMap[draggedIndex].baseColor : { baseColor: null });
   let opponentColor = (myColor === "#FF8BA7") ? "#76FFE8" : "#FF8BA7";
   let largestSame = getLargestNeighborByColor(draggedIndex, myColor);
   let largestOpp = getLargestNeighborByColor(draggedIndex, opponentColor);
@@ -1594,8 +1647,10 @@ function animate() {
   pushPoints();
   updateDelaunayAndVoronoi();
   clampToCanvas();
+  updateColorsByLargestNeighbor(12);
   drawVoronoi();
   requestAnimationFrame(animate);
+  updateScores();
 }
 
 cellCountSlider.addEventListener("input", () => {
@@ -1611,3 +1666,59 @@ initColorTerritoriesOnNewGame();
     
 // Starte den permanenten Animations-Loop für Echtzeit-Highlight
 animate();
+
+
+
+//// Scoring-Funktion
+function updateScores() {
+  const now = audioCtx.currentTime;
+  const deltaTime = now - lastScoreUpdateTime;
+  lastScoreUpdateTime = now;
+
+  // Gesamtflächen und Zellzahl pro Spieler ermitteln:
+  let areaP1 = 0, areaP2 = 0;
+  let countP1 = 0, countP2 = 0;
+  for (let i = 0; i < points.length; i++){
+    const cell = cachedVoronoi.cellPolygon(i);
+    if (!cell) continue;
+    let visibleCell = getClippedPolygon(cell);
+    let area = Math.abs(polygonArea(visibleCell));
+    // Wir gehen davon aus, dass Spieler1 die Farbe "#FF8BA7" und Spieler2 "#76FFE8" hat.
+    if (cellColorMap[i] && cellColorMap[i].baseColor === "#FF8BA7") {
+      areaP1 += area;
+      countP1++;
+    } else if (cellColorMap[i] && cellColorMap[i].baseColor === "#76FFE8") {
+      areaP2 += area;
+      countP2++;
+    }
+  }
+
+  // Punkte gemäß der Vorgabe berechnen:
+  let incP1 = 0, incP2 = 0;
+  if (areaP1 > areaP2) {
+    // Spieler1 hat das größere Gebiet:
+    incP1 = (areaP1 - areaP2) * countP1;
+    incP2 = (areaP2 - (areaP1 / 2)) * countP2;
+  } else {
+    // Spieler2 hat das größere Gebiet:
+    incP2 = (areaP2 - areaP1) * countP2;
+    incP1 = (areaP1 - (areaP2 / 2)) * countP1;
+  }
+  // Falls der Unterschied negativ ist, setze das Inkrement auf 0:
+  incP1 = Math.max(0, incP1);
+  incP2 = Math.max(0, incP2);
+
+  // Nun: Punkte werden nur gesammelt, wenn der Gegner am Zug ist.
+  // Nehmen wir an: activeColor signalisiert den aktuell aktiven Spieler.
+  if (activeColor === "#FF8BA7") {
+    // Spieler1 ist aktiv → Spieler2 sammelt Punkte.
+    scorePlayer2 += incP2 * deltaTime / 1000;
+  } else if (activeColor === "#76FFE8") {
+    // Spieler2 ist aktiv → Spieler1 sammelt Punkte.
+    scorePlayer1 += incP1 * deltaTime / 1000;
+  }
+  scorePlayer1 = Math.round(scorePlayer1);
+  scorePlayer2 = Math.round(scorePlayer2);
+  scorePlayer1Span.innerHTML = scorePlayer1;
+  scorePlayer2Span.innerHTML = scorePlayer2;
+}
