@@ -715,18 +715,6 @@ function computeCellWeights(iterations=5) {
   return weight;
 }
 
-/**
- * Wir sammeln "Frontlinien" in einem globalen Set "frontEdges",
- * um sie später fett zu zeichnen.
- */
-let frontEdges = new Set();
-function markFrontLine(a, b) {
-  // a<b zur Eindeutigkeit
-  let mini = Math.min(a,b);
-  let maxi = Math.max(a,b);
-  frontEdges.add(`${mini}-${maxi}`);
-}
-
 // ===============================================
 // 3) Canvas-Events: Drag & Drop vs. Klick in Zelle
 // ===============================================
