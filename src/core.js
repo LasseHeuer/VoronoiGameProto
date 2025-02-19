@@ -41,6 +41,11 @@ let cellColorMap = {};
 // Für "dauerhaftes" Ziehen: Map aus cellIdx -> { oscillator, gainNode }
 let dragToneMap = {};
 
+let currentDraggingSameNeighbor = null;
+let currentDraggingOpponentNeighbor = null;
+let currentDraggingSameNeighborArea = 0;
+let currentDraggingOpponentNeighborArea = 0;
+
 // Web Audio
 const audioCtx   = new (window.AudioContext || window.webkitAudioContext)();
 
@@ -89,6 +94,23 @@ dummyPointsCheckbox.addEventListener("change", () => {
   updateDelaunayAndVoronoi();
   drawVoronoi();
 });
+
+// Helper-Funktion: größter angrenzender Nachbar mit gegebener Farbe
+function getLargestNeighborByColor(cellIdx, targetColor) {
+  updateDelaunayAndVoronoi();
+  let largest = { cellID: null, maxArea: 0 };
+  for (let nb of cachedDelaunay.neighbors(cellIdx)) {
+    // Stelle sicher, dass es sich um eine echte Zelle handelt (keine Dummy-Punkte)
+    if (nb < points.length && cellColorMap[nb].baseColor === targetColor) {
+      let area = getVisibleArea(nb);
+      if (area > largest.maxArea) {
+        largest.cellID = nb;
+        largest.maxArea = area;
+      }
+    }
+  }
+  return largest;
+}
 
 function generateDummyPoints(width, height, spacing, margin) {
   let dPoints = [];
@@ -213,7 +235,7 @@ function drawVoronoi() {
     }
 
   // draw line to largest neighbor cell:
-  if (currentDraggingCell == null || currentDraggingNeighborCell == null) {
+  /* if (currentDraggingCell == null || currentDraggingNeighborCell == null) {
       return;
   }
   let pointA = points[currentDraggingCell];
@@ -224,7 +246,42 @@ function drawVoronoi() {
   ctx.moveTo(pointA[0], pointA[1]);
   ctx.lineTo(pointB[0], pointB[1]);
   ctx.stroke();
-  ctx.closePath();
+  ctx.closePath(); */
+
+  if (currentDraggingCell != null) {
+    let origin = points[currentDraggingCell];
+  
+    // Linie zum größten Nachbarn mit gleicher Farbe:
+    if (currentDraggingSameNeighbor != null) {
+      let samePoint = points[currentDraggingSameNeighbor];
+      ctx.lineWidth = 2; // dickere Linie
+      ctx.strokeStyle = "black";
+      ctx.beginPath();
+      ctx.moveTo(origin[0], origin[1]);
+      ctx.lineTo(samePoint[0], samePoint[1]);
+      ctx.stroke();
+      ctx.closePath();
+    }
+    
+    // Linie zum größten gegnerischen Nachbarn:
+    if (currentDraggingOpponentNeighbor != null) {
+      let oppPoint = points[currentDraggingOpponentNeighbor];
+      // Berechne dynamisch die Linienstärke:
+      let thickness = 0.5; // Basisstärke für gegnerische Linie
+      if (currentDraggingSameNeighborArea > 0) {
+        let ratio = currentDraggingOpponentNeighborArea / currentDraggingSameNeighborArea;
+        // Beispiel: Wenn die gegnerische Zelle fast gleich groß ist (ratio nahe 1), wird die Linie dicker
+        thickness = 0.5 + 2 * Math.min(ratio, 1);
+      }
+      ctx.lineWidth = thickness;
+      ctx.strokeStyle = "black";
+      ctx.beginPath();
+      ctx.moveTo(origin[0], origin[1]);
+      ctx.lineTo(oppPoint[0], oppPoint[1]);
+      ctx.stroke();
+      ctx.closePath();
+    }
+  }
 }
 
 // Polygonfläche (Shoelace)
@@ -890,11 +947,19 @@ canvas.addEventListener("mousemove", (e) => {
        }
     }    
     
-  //console.log("Set dragging cell globals:");
-  let largestNeighborID = getLargestNeighbor(draggedIndex).cellID;
-  //console.log(draggedIndex, largestNeighborID);
+  /* let largestNeighborID = getLargestNeighbor(draggedIndex).cellID;
   currentDraggingCell = draggedIndex;
-  currentDraggingNeighborCell = getLargestNeighbor(draggedIndex).cellID;
+  currentDraggingNeighborCell = getLargestNeighbor(draggedIndex).cellID; */
+
+  let myColor = cellColorMap[draggedIndex].baseColor;
+  let opponentColor = (myColor === "#FF8BA7") ? "#76FFE8" : "#FF8BA7";
+  let largestSame = getLargestNeighborByColor(draggedIndex, myColor);
+  let largestOpp = getLargestNeighborByColor(draggedIndex, opponentColor);
+  currentDraggingCell = draggedIndex;
+  currentDraggingSameNeighbor = largestSame.cellID;
+  currentDraggingOpponentNeighbor = largestOpp.cellID;
+  currentDraggingSameNeighborArea = largestSame.maxArea;
+  currentDraggingOpponentNeighborArea = largestOpp.maxArea;
 
   updateDelaunayAndVoronoi();
     
@@ -1084,9 +1149,10 @@ function spreadNotes(startIdx, mousePos) {
 
     if (d < maxDepth) {
       for (const nb of delaunay.neighbors(i)) {
-        if (!visited.has(nb)) {
+        // Nur echte Zellen (keine Dummy-Punkte) berücksichtigen:
+        if (nb < points.length && !visited.has(nb)) {
           visited.add(nb);
-          queue.push({ idx: nb, depth: d+1 });
+          queue.push({ idx: nb, depth: d + 1 });
         }
       }
     }
