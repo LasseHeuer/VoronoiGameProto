@@ -139,7 +139,7 @@ function drawVoronoi() {
 
     let lum;
     if (ratio <= colorThreshold) {
-      const t = ratio / colorThreshold; 
+      const t = Math.sqrt(ratio / colorThreshold); 
       lum = 100 - (100 * t); // 100..0
     } else {
       lum = 0; 
