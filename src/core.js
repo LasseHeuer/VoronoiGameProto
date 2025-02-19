@@ -318,10 +318,9 @@ function initColorTerritories() {
   let big1 = sorted[0].idx;
 
   // 4) Finde big2 = NICHT benachbart zu big1
-  let big2 = null;
+  let big2 = sorted[1].idx;
   // Hole neighbors von big1
   let neighborsOfBig1 = new Set(delaunay.neighbors(big1));
-
   for (let i = 1; i < sorted.length; i++) {
     const candidate = sorted[i].idx;
     if (!neighborsOfBig1.has(candidate)) {
@@ -355,6 +354,28 @@ function initColorTerritories() {
   if (!activeColor) {
     activeColor = cellColorMap[big1].baseColor;
   }
+}
+
+function initColorTerritoriesOnNewGame(){
+  const n = parseInt(cellCountSlider.value, 10);
+  points = generatePoints(n, width, height, 30, 0.2);
+    
+  // => mehr Iterationen, z.B. 30 anstatt 10, damit die Punkte sich nicht überlappen
+  let relaxTimes = (n>50) ? 30 : 10;
+
+  for (let i = 0; i < relaxTimes; i++) {
+    // Rufe "pushPoints()" in einer "Light-Version", die NICHT computeCellWeights() nutzt.
+    pushPointsNoWeight(); 
+    clampToCanvas();
+  }
+
+  updateDelaunayAndVoronoi();    
+    
+  highlightMap = {};
+
+  initColorTerritories();
+  updateColorsByLargestNeighbor(12);
+  drawVoronoi();
 }
 
 // Clipping eines Polygons an ein rechteckiges Gebiet (z.B. Canvas)
@@ -501,29 +522,6 @@ function polygonPerimeter(poly) {
   return perim;
 }
 
-/* function visibleCommonEdgeLength(cellIdxA, cellIdxB) {
-  // Hole die Voronoi-Polygone für beide Zellen und clippe sie an den Canvas
-  const delaunay = d3.Delaunay.from(points);
-  const voronoi  = delaunay.voronoi([0, 0, width, height]);
-  
-  let polyA = voronoi.cellPolygon(cellIdxA);
-  let polyB = voronoi.cellPolygon(cellIdxB);
-  if (!polyA || !polyB) return 0;
-  
-  const visPolyA = getClippedPolygon(polyA);
-  const visPolyB = getClippedPolygon(polyB);
-  
-  // Berechne die Schnittmenge (Intersektion) der beiden sichtbaren Polygone
-  const interPoly = clipPolygonByPolygon(visPolyA, visPolyB);
-  
-  // Falls die Schnittmenge weniger als 2 Punkte hat, gibt es keine gemeinsame Kante.
-  if (interPoly.length < 2) return 0;
-  
-  // Für einen typischen gemeinsamen Rand (als Linie) enthält interPoly zwei Punkte.
-  // Falls mehr Punkte vorhanden sind, summieren wir die Randlängen.
-  return polygonPerimeter(interPoly);
-} */
-
 function visibleCommonEdgeLength(cellIdxA, cellIdxB) {
   // Verwende den gecachten Delaunay/Voronoi-Graph
   if (!cachedDelaunay || !cachedVoronoi) {
@@ -544,22 +542,6 @@ function visibleCommonEdgeLength(cellIdxA, cellIdxB) {
   
   return polygonPerimeter(interPoly);
 }
-
-/* function getVisibleNeighbors(cellIdx, minEdgeLength = 5) {
-  const visibleNeighbors = [];
-  const delaunay = d3.Delaunay.from(points);
-  
-  for (let nb of delaunay.neighbors(cellIdx)) {
-    // Falls Dummy-Punkte in deinem Setup enthalten sind, kannst du hier filtern:
-    if (nb >= points.length) continue;
-    
-    const commonEdge = visibleCommonEdgeLength(cellIdx, nb);
-    if (commonEdge >= minEdgeLength) {
-      visibleNeighbors.push(nb);
-    }
-  }
-  return visibleNeighbors;
-} */
 
 function getVisibleNeighbors(cellIdx, minEdgeLength = 5) {
   const visibleNeighbors = [];
@@ -598,21 +580,6 @@ function getMaxCommonEdgeLengthForColor(cellIdx, targetColor) {
   }
   return maxEdge;
 }
-
-/* function getVisibleArea(cellIdx) {
-  // Erzeuge Voronoi (oder verwende den bereits gecachten, falls möglich)
-  const delaunay = d3.Delaunay.from(points);
-  const voronoi  = delaunay.voronoi([0, 0, width, height]);
-  
-  let cellPoly = voronoi.cellPolygon(cellIdx);
-  if (!cellPoly) return 0;
-  
-  // Clipping an den Canvas-Rand durchführen
-  let visiblePoly = getClippedPolygon(cellPoly);
-  
-  // Fläche des sichtbaren Bereichs berechnen
-  return Math.abs(polygonArea(visiblePoly));
-} */
 
 function getVisibleArea(cellIdx) {
   // Verwende den gecachten Voronoi-Graph, der in updateDelaunayAndVoronoi() erstellt wurde.
@@ -1501,46 +1468,8 @@ function animate() {
   drawVoronoi();
 }
 
-// Event Listener
-colorThresSlider.addEventListener("input", () => {
-  // Wir müssen nichts Spezielles tun, 
-  // da drawVoronoi() in animate() loop erfolgt
-});
-freqThresSlider.addEventListener("input", () => {
-  // Frequenz ändert sich erst beim nächsten Klick
-});
-spreadTimeSlider.addEventListener("input", () => {
-  // Ausbreitungstempo ändert sich erst beim nächsten Klick
-});
-spreadDepthSlider.addEventListener("input", () => {
-  // Tiefe ändert sich erst beim nächsten Klick
-});
-cutoffSlider.addEventListener("input", () => {
-  // Für neue Töne wirksam
-});
-waveTypeSel.addEventListener("change", () => {
-  // Für neue Töne wirksam
-});
 cellCountSlider.addEventListener("input", () => {
-  const n = parseInt(cellCountSlider.value, 10);
-  points = generatePoints(n, width, height, 30, 0.2);
-    
-  // => mehr Iterationen, z.B. 30 anstatt 10, damit die Punkte sich nicht überlappen
-  let relaxTimes = (n>50) ? 30 : 10;
-
-  for (let i = 0; i < relaxTimes; i++) {
-    // Rufe "pushPoints()" in einer "Light-Version", die NICHT computeCellWeights() nutzt.
-    pushPointsNoWeight(); 
-    clampToCanvas();
-  }
-
-  updateDelaunayAndVoronoi();    
-    
-  highlightMap = {};
-
-  initColorTerritories();
-  updateColorsByLargestNeighbor(12);
-  drawVoronoi();
+  initColorTerritoriesOnNewGame();
 }); 
 
 // ===============================================
@@ -1548,8 +1477,7 @@ cellCountSlider.addEventListener("input", () => {
 // ===============================================
     
 // Jetzt die Farbterritorien initialisieren
-initColorTerritories();
-updateColorsByLargestNeighbor();
+initColorTerritoriesOnNewGame();
     
 // Starte den permanenten Animations-Loop für Echtzeit-Highlight
 animate();
