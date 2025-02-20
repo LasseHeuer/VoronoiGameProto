@@ -243,8 +243,8 @@ function drawVoronoi() {
     // dem relativen Flächenvergleich (eigene Fläche vs. gegnerische Fläche)
     // und mische dann die eigene Farbe mit der des größten Gegnernachbarn.
     if (enemyCandidate !== null) {
-      const baseMixFactor = 0.6; // maximaler Einfluss (30%)
-      // Dynamischer Anteil: je größer die gegnerische Zelle im Vergleich zur eigenen, desto mehr mischen
+      const baseMixFactor = 0.5;
+      // Dynamischer Anteil: je größer die gegnerische Zelle im Vergleich zur eigenen angrenzenden größten Zelle, desto mehr mischen
       let mixFactor = baseMixFactor * (enemyCandidateArea / (enemyCandidateArea + area));
       mixFactor = Math.min(mixFactor, baseMixFactor);
       myColor = mixColors(myColor, enemyCandidate, mixFactor);
@@ -264,7 +264,7 @@ function drawVoronoi() {
     // Fläche als Text in den Zellen mittig anzeigen
     const centroid = computeCentroid(cell);
     ctx.fillStyle = "black";
-    ctx.font = "12px sans-serif";
+    ctx.font = "15px sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(Math.round(area/10), centroid.x, centroid.y);
@@ -310,25 +310,15 @@ function drawVoronoi() {
       ctx.fill();
     }
 
-  // draw line to largest neighbor cell:
-  /* if (currentDraggingCell == null || currentDraggingNeighborCell == null) {
-      return;
-  }
-  let pointA = points[currentDraggingCell];
-  let pointB = points[currentDraggingNeighborCell];
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = "black";
-  ctx.beginPath();
-  ctx.moveTo(pointA[0], pointA[1]);
-  ctx.lineTo(pointB[0], pointB[1]);
-  ctx.stroke();
-  ctx.closePath(); */
-
   if (currentDraggingCell != null) {
     let origin = points[currentDraggingCell];
-  
-    // Linie zum größten Nachbarn mit gleicher Farbe:
-    if (currentDraggingSameNeighbor != null) {
+    // Berechne die Fläche der aktuell gezogenen Zelle
+    let myCellPoly = cachedVoronoi.cellPolygon(currentDraggingCell);
+    let myArea = myCellPoly ? polygonArea(myCellPoly) : 0;
+
+    // Linie zum größten Nachbarn mit gleicher Farbe zeichnen,
+    // aber nur, wenn dessen Fläche > myArea ist.
+    if (currentDraggingSameNeighbor != null && currentDraggingSameNeighborArea > myArea) {
       let samePoint = points[currentDraggingSameNeighbor];
       ctx.lineWidth = 2; // dickere Linie
       ctx.strokeStyle = "black";
@@ -339,18 +329,19 @@ function drawVoronoi() {
       ctx.closePath();
     }
     
-    // Linie zum größten gegnerischen Nachbarn:
-    if (currentDraggingOpponentNeighbor != null) {
+    // Linie zum größten gegnerischen Nachbarn zeichnen,
+    // aber nur, wenn dessen Fläche > myArea ist.
+    if (currentDraggingOpponentNeighbor != null && currentDraggingOpponentNeighborArea > myArea) {
       let oppPoint = points[currentDraggingOpponentNeighbor];
       // Berechne dynamisch die Linienstärke:
       let thickness = 0.5; // Basisstärke für gegnerische Linie
       if (currentDraggingSameNeighborArea > 0) {
         let ratio = currentDraggingOpponentNeighborArea / currentDraggingSameNeighborArea;
-        // Beispiel: Wenn die gegnerische Zelle fast gleich groß ist (ratio nahe 1), wird die Linie dicker
+        // Falls die gegnerische Zelle fast gleich groß ist (ratio nahe 1), wird die Linie dicker
         thickness = 0.5 + 2 * Math.min(ratio, 1);
       }
       ctx.lineWidth = thickness;
-      ctx.strokeStyle = "black";
+      ctx.strokeStyle = "white";
       ctx.beginPath();
       ctx.moveTo(origin[0], origin[1]);
       ctx.lineTo(oppPoint[0], oppPoint[1]);
@@ -1714,15 +1705,33 @@ function rgbToHex(r,g,b){
 // ===============================================
 // 7) Animations-Loop für Echtzeit-Highlight
 // ===============================================
+let velocities = [];
+for (let i = 0; i < points.length; i++) {
+  velocities[i] = { x: 0, y: 0 };
+}
+
 function animate() {
   pushPoints();
+  updatePointPositions();
   updateDelaunayAndVoronoi();
   clampToCanvas();
   updateColorsByLargestNeighbor(12);
   drawVoronoi();
-  requestAnimationFrame(animate);
   updateScores();
   updateScoreBars();
+  requestAnimationFrame(animate);
+}
+
+function updatePointPositions() {
+  const damping = 0.9; // Faktor zwischen 0 (statisch) und 1 (keine Dämpfung)
+  for (let i = 0; i < points.length; i++) {
+    // Dämpfe die Geschwindigkeiten
+    velocities[i].x *= damping;
+    velocities[i].y *= damping;
+    // Aktualisiere die Position
+    points[i][0] += velocities[i].x;
+    points[i][1] += velocities[i].y;
+  }
 }
 
 cellCountSlider.addEventListener("input", () => {
