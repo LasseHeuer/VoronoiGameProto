@@ -1183,6 +1183,77 @@ function pushPointsNoWeight() {
   }
 }
 
+// ===============================================
+//// Scoring-Funktion
+// ===============================================
+
+function updateScores() {
+  const now = audioCtx.currentTime;
+  const deltaTime = now - lastScoreUpdateTime;
+  lastScoreUpdateTime = now;
+
+  // Gesamtflächen und Zellzahl pro Spieler ermitteln:
+  let areaP1 = 0, areaP2 = 0;
+  let countP1 = 0, countP2 = 0;
+  for (let i = 0; i < points.length; i++){
+    const cell = cachedVoronoi.cellPolygon(i);
+    if (!cell) continue;
+    let visibleCell = getClippedPolygon(cell);
+    let area = Math.abs(polygonArea(visibleCell));
+    // Wir gehen davon aus, dass Spieler1 die Farbe "#FF8BA7" und Spieler2 "#76FFE8" hat.
+    if (cellColorMap[i] && cellColorMap[i].baseColor === "#FF8BA7") {
+      areaP1 += area;
+      countP1++;
+    } else if (cellColorMap[i] && cellColorMap[i].baseColor === "#76FFE8") {
+      areaP2 += area;
+      countP2++;
+    }
+  }
+
+  // Punkte gemäß der Vorgabe berechnen:
+  let incP1 = 0, incP2 = 0;
+  if (areaP1 > areaP2) {
+    // Spieler1 hat das größere Gebiet:
+    incP1 = (areaP1 - areaP2) * countP1;
+    incP2 = (areaP2 - (areaP1 / 2)) * countP2;
+  } else {
+    // Spieler2 hat das größere Gebiet:
+    incP2 = (areaP2 - areaP1) * countP2;
+    incP1 = (areaP1 - (areaP2 / 2)) * countP1;
+  }
+  // Falls der Unterschied negativ ist, setze das Inkrement auf 0:
+  incP1 = Math.max(0, incP1);
+  incP2 = Math.max(0, incP2);
+
+  // Nun: Punkte werden nur gesammelt, wenn der Gegner am Zug ist.
+  // Nehmen wir an: activeColor signalisiert den aktuell aktiven Spieler.
+  if (activeColor === "#FF8BA7") {
+    // Spieler1 ist aktiv → Spieler2 sammelt Punkte.
+    scorePlayer2 += incP2 * deltaTime / 1000;
+  } else if (activeColor === "#76FFE8") {
+    // Spieler2 ist aktiv → Spieler1 sammelt Punkte.
+    scorePlayer1 += incP1 * deltaTime / 1000;
+  }
+  scorePlayer1 = Math.round(scorePlayer1);
+  scorePlayer2 = Math.round(scorePlayer2);
+  scorePlayer1Span.innerHTML = scorePlayer1;
+  scorePlayer2Span.innerHTML = scorePlayer2;
+}
+
+function updateScoreBars() {
+  // Gesamtscore: Summe beider Spieler
+  const total = scorePlayer1 + scorePlayer2;
+  let ratio1 = 0, ratio2 = 0;
+  if (total > 0) {
+    ratio1 = (scorePlayer1 / total) * 100;
+    ratio2 = (scorePlayer2 / total) * 100;
+  }
+  const bar1 = document.getElementById("scoreBar1");
+  const bar2 = document.getElementById("scoreBar2");
+  
+  bar1.style.width = ratio1 + "%";
+  bar2.style.width = ratio2 + "%";
+}
 
 // ===============================================
 // 4) AUSBREITUNG: BFS durch Delaunay-Nachbarn
@@ -1668,73 +1739,4 @@ initColorTerritoriesOnNewGame();
 // Starte den permanenten Animations-Loop für Echtzeit-Highlight
 animate();
 
-
-
-//// Scoring-Funktion
-function updateScores() {
-  const now = audioCtx.currentTime;
-  const deltaTime = now - lastScoreUpdateTime;
-  lastScoreUpdateTime = now;
-
-  // Gesamtflächen und Zellzahl pro Spieler ermitteln:
-  let areaP1 = 0, areaP2 = 0;
-  let countP1 = 0, countP2 = 0;
-  for (let i = 0; i < points.length; i++){
-    const cell = cachedVoronoi.cellPolygon(i);
-    if (!cell) continue;
-    let visibleCell = getClippedPolygon(cell);
-    let area = Math.abs(polygonArea(visibleCell));
-    // Wir gehen davon aus, dass Spieler1 die Farbe "#FF8BA7" und Spieler2 "#76FFE8" hat.
-    if (cellColorMap[i] && cellColorMap[i].baseColor === "#FF8BA7") {
-      areaP1 += area;
-      countP1++;
-    } else if (cellColorMap[i] && cellColorMap[i].baseColor === "#76FFE8") {
-      areaP2 += area;
-      countP2++;
-    }
-  }
-
-  // Punkte gemäß der Vorgabe berechnen:
-  let incP1 = 0, incP2 = 0;
-  if (areaP1 > areaP2) {
-    // Spieler1 hat das größere Gebiet:
-    incP1 = (areaP1 - areaP2) * countP1;
-    incP2 = (areaP2 - (areaP1 / 2)) * countP2;
-  } else {
-    // Spieler2 hat das größere Gebiet:
-    incP2 = (areaP2 - areaP1) * countP2;
-    incP1 = (areaP1 - (areaP2 / 2)) * countP1;
-  }
-  // Falls der Unterschied negativ ist, setze das Inkrement auf 0:
-  incP1 = Math.max(0, incP1);
-  incP2 = Math.max(0, incP2);
-
-  // Nun: Punkte werden nur gesammelt, wenn der Gegner am Zug ist.
-  // Nehmen wir an: activeColor signalisiert den aktuell aktiven Spieler.
-  if (activeColor === "#FF8BA7") {
-    // Spieler1 ist aktiv → Spieler2 sammelt Punkte.
-    scorePlayer2 += incP2 * deltaTime / 1000;
-  } else if (activeColor === "#76FFE8") {
-    // Spieler2 ist aktiv → Spieler1 sammelt Punkte.
-    scorePlayer1 += incP1 * deltaTime / 1000;
-  }
-  scorePlayer1 = Math.round(scorePlayer1);
-  scorePlayer2 = Math.round(scorePlayer2);
-  scorePlayer1Span.innerHTML = scorePlayer1;
-  scorePlayer2Span.innerHTML = scorePlayer2;
-}
-
-function updateScoreBars() {
-  // Gesamtscore: Summe beider Spieler
-  const total = scorePlayer1 + scorePlayer2;
-  let ratio1 = 0, ratio2 = 0;
-  if (total > 0) {
-    ratio1 = (scorePlayer1 / total) * 100;
-    ratio2 = (scorePlayer2 / total) * 100;
-  }
-  const bar1 = document.getElementById("scoreBar1");
-  const bar2 = document.getElementById("scoreBar2");
-  
-  bar1.style.width = ratio1 + "%";
-  bar2.style.width = ratio2 + "%";
-}
+// ===============================================
