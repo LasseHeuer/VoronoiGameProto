@@ -643,19 +643,19 @@ function clipPolygonByPolygon(subjectPoly, clipPoly) {
         // Bei konvexen Polygonen reicht das.
         return ((p2[0] - p1[0]) * (p[1] - p1[1]) - (p2[1] - p1[1]) * (p[0] - p1[0])) >= 0;
       },
-      intersect: (p, q) => {
-        // Berechne Schnittpunkt zwischen der Kante (p->q) und der aktuellen Kante (p1->p2)
-        const A1 = q[1] - p[1];
-        const B1 = p[0] - q[0];
-        const C1 = A1 * p[0] + B1 * p[1];
-        
+      intersect: (a, b) => {
+        // Berechne Schnittpunkt zwischen der Linie (a->b) und der aktuellen Kante (p1->p2)
+        const A1 = b[1] - a[1];
+        const B1 = a[0] - b[0];
+        const C1 = A1 * a[0] + B1 * a[1];
+
         const A2 = p2[1] - p1[1];
         const B2 = p1[0] - p2[0];
         const C2 = A2 * p1[0] + B2 * p1[1];
-        
+
         const det = A1 * B2 - A2 * B1;
         if (det === 0) {
-          return p; // Linien parallel – gib p zurück
+          return a; // Linien parallel – gib a zurück
         } else {
           const x = (B2 * C1 - B1 * C2) / det;
           const y = (A1 * C2 - A2 * C1) / det;
@@ -1651,6 +1651,7 @@ function animate() {
   drawVoronoi();
   requestAnimationFrame(animate);
   updateScores();
+  updateScoreBars();
 }
 
 cellCountSlider.addEventListener("input", () => {
@@ -1721,4 +1722,19 @@ function updateScores() {
   scorePlayer2 = Math.round(scorePlayer2);
   scorePlayer1Span.innerHTML = scorePlayer1;
   scorePlayer2Span.innerHTML = scorePlayer2;
+}
+
+function updateScoreBars() {
+  // Gesamtscore: Summe beider Spieler
+  const total = scorePlayer1 + scorePlayer2;
+  let ratio1 = 0, ratio2 = 0;
+  if (total > 0) {
+    ratio1 = (scorePlayer1 / total) * 100;
+    ratio2 = (scorePlayer2 / total) * 100;
+  }
+  const bar1 = document.getElementById("scoreBar1");
+  const bar2 = document.getElementById("scoreBar2");
+  
+  bar1.style.width = ratio1 + "%";
+  bar2.style.width = ratio2 + "%";
 }
