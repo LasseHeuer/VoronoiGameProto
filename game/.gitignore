@@ -1,0 +1,3 @@
+# Godot-Cache und Export-Ausgaben nicht versionieren
+.godot/
+build/

@@ -1,0 +1,32 @@
+; Engine configuration file.
+; Voronoi Game - Desktop-Neuaufbau in Godot 4.
+;
+; Hinweis: Es wird bewusst KEIN display/window/stretch/mode gesetzt.
+; Das Brett wird von view/board_transform.gd selbst auf die Fenstergroesse
+; skaliert und zentriert (Letterbox), damit die UI in echten Fensterpixeln
+; scharf bleibt.
+
+config_version=5
+
+[application]
+
+config/name="Voronoi Game"
+config/description="Voronoi-Flaechenspiel mit audio-getriebener Ausbreitung."
+run/main_scene="res://scenes/Main.tscn"
+config/features=PackedStringArray("4.6", "GL Compatibility")
+
+[display]
+
+window/size/viewport_width=1000
+window/size/viewport_height=700
+window/size/resizable=true
+
+[physics]
+
+common/physics_ticks_per_second=60
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+anti_aliasing/quality/msaa_2d=0
