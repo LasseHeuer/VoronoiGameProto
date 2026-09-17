@@ -1,4 +1,4 @@
-[gd_scene load_steps=7 format=3]
+[gd_scene load_steps=8 format=3]
 
 [ext_resource type="Script" path="res://scripts/app/game_app.gd" id="1_app"]
 [ext_resource type="Script" path="res://scripts/view/board_renderer.gd" id="2_view"]
@@ -6,6 +6,7 @@
 [ext_resource type="Script" path="res://scripts/audio/synth.gd" id="4_synth"]
 [ext_resource type="PackedScene" path="res://scenes/SettingsPanel.tscn" id="6_panel"]
 [ext_resource type="Script" path="res://scripts/ui/gear_button.gd" id="7_gear"]
+[ext_resource type="Script" path="res://scripts/ui/restart_button.gd" id="8_restart"]
 
 [node name="Main" type="Node"]
 script = ExtResource("1_app")
@@ -27,5 +28,14 @@ offset_bottom = 34.0
 tooltip_text = "Einstellungen"
 flat = true
 script = ExtResource("7_gear")
+
+[node name="RestartButton" type="Button" parent="."]
+offset_left = 866.0
+offset_top = 8.0
+offset_right = 892.0
+offset_bottom = 34.0
+tooltip_text = "Neustart"
+flat = true
+script = ExtResource("8_restart")
 
 [node name="SettingsPanel" parent="." instance=ExtResource("6_panel")]

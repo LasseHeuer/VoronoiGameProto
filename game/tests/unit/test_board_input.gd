@@ -92,6 +92,7 @@ func test_automatic_color_switch_suppresses_cascade() -> void:
 	assert_true(input.is_dragging(), "Drag startet in der eigenen Farbe")
 	# Waehrend des Drags kippt die Farbausbreitung die gezogene Zelle.
 	board.set_cell_color(0, GameConfig.COLOR_PLAYER2)
+	input.notify_drag_cell_lost(0)
 	_move_cursor(input, Vector2(300.0, 300.0))
 	input._on_release()
 
@@ -99,6 +100,39 @@ func test_automatic_color_switch_suppresses_cascade() -> void:
 	assert_eq(board.active_color, GameConfig.COLOR_PLAYER2, "Farbe wechselt auf die gezogene Zelle")
 	input.consume_pending_spread()
 	assert_signal_not_emitted(input, "notes_spread_requested")
+
+
+func test_lost_drag_stays_active_until_the_cell_is_rescued() -> void:
+	var input := _make_input(true)
+	var board: BoardState = input.board
+	watch_signals(input)
+
+	input._on_press(POINT_A)
+	board.set_cell_color(0, GameConfig.COLOR_PLAYER2)
+	input.notify_drag_cell_lost(0)
+	assert_eq(input.update_drag_rescue(float(Time.get_ticks_msec()) + 500.0), 0)
+	assert_true(input.is_dragging(), "die Rettungszeit haelt den Drag aktiv")
+
+	board.set_cell_color(0, GameConfig.COLOR_PLAYER1)
+	assert_eq(input.update_drag_rescue(float(Time.get_ticks_msec())), 1)
+	assert_true(input.is_dragging(), "eine gerettete Zelle bleibt bis zum Loslassen aktiv")
+	input._on_release()
+	input.consume_pending_spread()
+	assert_signal_emitted(input, "notes_spread_requested")
+
+
+func test_lost_drag_switches_after_rescue_timeout() -> void:
+	var input := _make_input(true)
+	var board: BoardState = input.board
+
+	input._on_press(POINT_A)
+	board.set_cell_color(0, GameConfig.COLOR_PLAYER2)
+	input.notify_drag_cell_lost(0)
+	var state := input.update_drag_rescue(float(Time.get_ticks_msec()) + 1001.0)
+
+	assert_eq(state, -1, "abgelaufene Rettungszeit beendet den Drag")
+	assert_false(input.is_dragging())
+	assert_eq(board.active_color, GameConfig.COLOR_PLAYER2, "danach wechselt der aktive Spieler")
 
 
 func test_drag_blocked_by_wrong_color_starts_no_cascade() -> void:
@@ -120,7 +154,7 @@ func _make_plain(input: BoardInput) -> Voronoi:
 
 
 ## Die Drag-Daten zeigen auf die groessten Nachbarn je Farbe; die Warnung
-## steigt mit dem Flaechen-Vorsprung des Gegners. Nach dem Loslassen ist alles
+## folgt dem summierten relativen Einfluss. Nach dem Loslassen ist alles
 ## zurueckgesetzt.
 func test_drag_visuals_report_neighbors_and_warning() -> void:
 	var setup := _make_three_cell_board()
@@ -145,8 +179,8 @@ func test_drag_visuals_report_neighbors_and_warning() -> void:
 	assert_eq(board.drag_blink, 0.0)
 
 
-## Ohne Gegner in Reichweite gibt es keine Warnung.
-func test_drag_warning_stays_zero_without_an_opponent() -> void:
+## Ohne groesseren Gegner kann ein zu geringer eigener Summenwert nicht warnen.
+func test_drag_warning_stays_zero_without_loss_risk() -> void:
 	var setup := _make_three_cell_board()
 	var input: BoardInput = setup[0]
 	var board: BoardState = setup[1]
@@ -158,7 +192,7 @@ func test_drag_warning_stays_zero_without_an_opponent() -> void:
 	input.apply_drag_motion()
 	input.update_drag_visuals(Voronoi.from_board(board, rect))
 
-	assert_eq(board.drag_warn, 0.0, "ohne Gegner keine Warnung")
+	assert_eq(board.drag_warn, 0.0, "ohne gegnerischen Druck gibt es keine Warnung")
 
 
 ## Drei Zellen: links zwei eigene, rechts eine Gegnerzelle.

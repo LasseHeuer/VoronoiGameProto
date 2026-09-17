@@ -31,6 +31,13 @@ var _cache_points := PackedVector2Array()
 var _cache_scale := -1.0
 var _cache_offset := Vector2.ZERO
 var _cache_radius := -1.0
+## Gerundete Zellfuellungen (Fensterkoordinaten), einmal je Geometrie.
+var _fill_outlines: Array = []
+var _cache_fill_voronoi: Voronoi = null
+var _cache_fill_colors := PackedStringArray()
+var _cache_fill_scale := -1.0
+var _cache_fill_offset := Vector2.ZERO
+var _cache_fill_radius := -1.0
 ## UV-Platzhalter fuer draw_primitive (3 Punkte je Dreieck).
 var _uvs3 := PackedVector2Array([Vector2.ZERO, Vector2.ZERO, Vector2.ZERO])
 
@@ -80,7 +87,7 @@ func _draw_cells() -> void:
 		return
 	var line_scale := view_transform.scale
 	_ensure_territories(line_scale)
-	_fill_colors = _cell_fill_colors(count)
+	_ensure_fill_outlines(line_scale)
 
 	# 1) Zellflaechen: immer das gueltige Voronoi-Polygon fuellen. Die
 	#    Territoriums-Grenze liegt darueber; so bleiben keine Zellen grau, wenn
@@ -95,13 +102,21 @@ func _draw_cells() -> void:
 			continue
 		var screen := _to_screen_polygon(poly)
 		raws[i] = screen
-		shapes[i] = [screen]
-		_fill_polygon(screen, Color(_fill_colors[i]))
+		var filled: PackedVector2Array = _fill_outlines[i]
+		if filled.size() < 3:
+			filled = screen
+		var parts := _clip_to_territory(i, filled)
+		if parts.is_empty():
+			parts = [filled]
+		shapes[i] = parts
+		for part in parts:
+			_fill_polygon(part, Color(_fill_colors[i]))
 		if highlight_cells.has(i):
 			# Klingende Zelle: farbige Ueberlagerung folgt der Tonlautstaerke.
 			var play_color := Color(GameConfig.NOTE_PLAY_COLOR)
 			play_color.a = GameConfig.NOTE_PLAY_ALPHA * clampf(float(highlight_cells[i]), 0.0, 1.0)
-			_fill_polygon(screen, play_color)
+			for part in parts:
+				_fill_polygon(part, play_color)
 
 	# 2) Uebernahme-Warnung: die groesste Gegnerzelle blinkt.
 	_draw_takeover_blink(shapes)
@@ -116,53 +131,73 @@ func _draw_cells() -> void:
 	_draw_territory_lines(line_scale)
 
 
-## Fuellfarbe jeder Zelle: Helligkeit nach Flaechenanteil, dazu ein Anteil der
-## groessten Gegnerfarbe an der gemeinsamen Grenze.
+## Fuellfarbe jeder Zelle: kontinuierlicher Verlauf durch die drei definierten
+## Farbstufen des jeweiligen Spielers.
 func _cell_fill_colors(count: int) -> PackedStringArray:
 	var colors := PackedStringArray()
 	colors.resize(count)
-	var min_max := voronoi.min_max_area()
-	var min_area := min_max.x
-	var max_area := min_max.y
-	if max_area == min_area:
-		min_area = 0.0
-		max_area = 1.0
+	var step_colors := _cell_step_colors(count)
 	for i in range(count):
-		var area := voronoi.area(i)
-		var base := board.cell_color(i)
-		var norm := 0.0
-		if area > 0.01:
-			norm = (area - min_area) / (max_area - min_area)
-		var my_color := color_for_area(base, norm)
-
-		var enemy_color := ""
-		var enemy_area := 0.0
-		for nb in voronoi.delaunay().neighbors(i):
-			if nb >= count:
-				continue
-			var nb_base := board.cell_color(nb)
-			if nb_base == "" or nb_base == base:
-				continue
-			var nb_area := voronoi.area(nb)
-			if nb_area > enemy_area:
-				enemy_area = nb_area
-				enemy_color = nb_base
-		if enemy_color != "" and area > 0.01:
-			var mix := GameConfig.ENEMY_MIX_BASE * (enemy_area / (enemy_area + area))
-			mix = minf(mix, GameConfig.ENEMY_MIX_BASE)
-			my_color = mix_colors(my_color, enemy_color, mix)
-		colors[i] = my_color
+		colors[i] = step_colors[i] if step_colors[i] != "" else GameConfig.CELL_EMPTY_COLOR
 	return colors
 
 
-## Zellfarbe: die kleinste Zelle ist am dunkelsten, die groesste am
-## hellsten. Der Farbton der Grundfarbe bleibt, nur die Helligkeit wird
-## mit dem Flaechenanteil skaliert.
-static func color_for_area(base: String, norm: float) -> String:
-	var lum := GameConfig.LUM_MIN + (GameConfig.LUM_MAX - GameConfig.LUM_MIN) * norm
-	if base == "":
-		return grey_color(lum)
-	return mix_color_with_grey(base, lum)
+## Farbverlauf je Zelle: die groesste Zelle bekommt Landmarke 1. Alle weiteren
+## Zellen werden zwischen Landmarke 2 (zweitgroesste) und 3 (kleinste) im
+## RGB-Raum fliessend interpoliert.
+func _cell_step_colors(count: int) -> PackedStringArray:
+	var out := PackedStringArray()
+	out.resize(count)
+	for player in [GameConfig.COLOR_PLAYER1, GameConfig.COLOR_PLAYER2]:
+		var palette: Array = GameConfig.step_colors_for(player)
+		var indices: Array = []
+		for i in range(count):
+			if board.cell_color(i) == player:
+				indices.append(i)
+		if indices.is_empty():
+			continue
+		var min_area := INF
+		for index in indices:
+			var area := voronoi.area(index)
+			min_area = minf(min_area, area)
+		indices.sort_custom(func(a, b):
+			if voronoi.area(a) == voronoi.area(b):
+				return a < b
+			return voronoi.area(a) > voronoi.area(b))
+		var largest: int = int(indices[0])
+		if indices.size() == 1:
+			out[largest] = "#" + Color(palette[0]).to_html(false)
+			continue
+		var second_area := voronoi.area(indices[1])
+		for index in indices:
+			if index == largest:
+				# Landmarke 1 ist ausschliesslich fuer die groesste Zelle.
+				out[index] = "#" + Color(palette[0]).to_html(false)
+				continue
+			var t := 0.0
+			if not is_equal_approx(second_area, min_area):
+				# Die restlichen Zellen verlaufen nur von Landmarke 2 zu 3.
+				t = clampf(inverse_lerp(second_area, min_area, voronoi.area(index)), 0.0, 1.0)
+			out[index] = _interpolate_remaining_landmarks(palette, t)
+	return out
+
+
+static func _interpolate_landmarks(palette: Array, t: float) -> String:
+	if palette.size() < 3:
+		return GameConfig.CELL_EMPTY_COLOR
+	var color: Color
+	if t <= 0.5:
+		color = Color(palette[0]).lerp(Color(palette[1]), t * 2.0)
+	else:
+		color = Color(palette[1]).lerp(Color(palette[2]), (t - 0.5) * 2.0)
+	return "#" + color.to_html(false)
+
+
+static func _interpolate_remaining_landmarks(palette: Array, t: float) -> String:
+	if palette.size() < 3:
+		return GameConfig.CELL_EMPTY_COLOR
+	var color := Color(palette[1]).lerp(Color(palette[2]), clampf(t, 0.0, 1.0))
+	return "#" + color.to_html(false)
 
 
 ## Duenne graue Innenraender einer Zelle: nur auf den Kanten zu einer
@@ -305,8 +340,6 @@ func _draw_territory_lines(line_scale: float) -> void:
 	var width := GameConfig.FRONT_FRAME_WIDTH * line_scale
 	for color in [GameConfig.COLOR_PLAYER1, GameConfig.COLOR_PLAYER2]:
 		var team := Color(color)
-		for corner in _territory_corner.get(color, []):
-			_fill_fan(corner["vertex"], corner["arc"], team)
 		var paths: Array = _territory_line.get(color, [])
 		for path in paths:
 			if path.size() < 3:
@@ -332,16 +365,19 @@ func _ensure_territories(line_scale: float) -> void:
 		var clip_paths: Array = []
 		var corner_paths: Array = []
 		for region in _merge_cells(color):
-			if region.size() < 3 or BoardGeometry.signed_polygon_area(region) <= 0.0:
+			if region.size() < 3 or absf(BoardGeometry.signed_polygon_area(region)) <= 0.5:
 				continue
+			region = _ensure_ccw(region)
 			var fillet := _fillet_with_cuts(region, config.corner_radius + half)
 			var rounded: PackedVector2Array = fillet["path"]
-			for inner in Geometry2D.offset_polygon(rounded, -half, Geometry2D.JOIN_MITER):
+			for inner in Geometry2D.offset_polygon(rounded, -half, Geometry2D.JOIN_ROUND):
 				if inner.size() >= 3:
-					line_paths.append(_to_screen_polygon(_ensure_ccw(inner)))
-			for inner in Geometry2D.offset_polygon(rounded, -inset, Geometry2D.JOIN_MITER):
+					var smooth_line := _smooth_territory_path(_ensure_ccw(inner))
+					line_paths.append(_to_screen_polygon(smooth_line))
+			for inner in Geometry2D.offset_polygon(rounded, -inset, Geometry2D.JOIN_ROUND):
 				if inner.size() >= 3:
-					clip_paths.append(_to_screen_polygon(_ensure_ccw(inner)))
+					var smooth_clip := _smooth_territory_path(_ensure_ccw(inner))
+					clip_paths.append(_to_screen_polygon(smooth_clip))
 			for cut in fillet["cuts"]:
 				# Am Brettrand zeigt die Luecke den Hintergrund: dort bleibt
 				# die Ecke offen und wirkt dadurch rund.
@@ -362,6 +398,43 @@ func _ensure_territories(line_scale: float) -> void:
 	_cache_radius = config.corner_radius
 
 
+func _smooth_territory_path(path: PackedVector2Array) -> PackedVector2Array:
+	if config.corner_radius <= 0.01:
+		return path
+	# Dummy-Raender erzeugen bei langen Konturen viele kleine Richtungswechsel.
+	# Ein zweiter Chaikin-Durchlauf glattet nur diese langen Wege; kurze
+	# Territorien behalten die bisherige Geometrie.
+	var rounds := 2 if path.size() >= 12 else 1
+	return BoardGeometry.smooth_closed_polygon(path, rounds)
+
+
+## Gerundete Zellfuellungen und Fuellfarben nur dann neu berechnen, wenn sich
+## Geometrie, Farben, Radius oder Ansicht geaendert haben. Im Ruhezustand
+## entfaellt damit pro Bild die komplette Neuberechnung aller Zellen.
+func _ensure_fill_outlines(line_scale: float) -> void:
+	if voronoi == _cache_fill_voronoi \
+		and board.cell_colors == _cache_fill_colors \
+		and is_equal_approx(view_transform.scale, _cache_fill_scale) \
+		and view_transform.offset == _cache_fill_offset \
+		and is_equal_approx(config.corner_radius, _cache_fill_radius):
+		return
+	var count := voronoi.cells.size()
+	_fill_colors = _cell_fill_colors(count)
+	_fill_outlines = []
+	_fill_outlines.resize(count)
+	for i in range(count):
+		var poly := voronoi.cell_polygon(i)
+		if poly.size() < 3:
+			_fill_outlines[i] = PackedVector2Array()
+			continue
+		_fill_outlines[i] = _fill_outline(i, _to_screen_polygon(poly), line_scale)
+	_cache_fill_voronoi = voronoi
+	_cache_fill_colors = board.cell_colors
+	_cache_fill_scale = view_transform.scale
+	_cache_fill_offset = view_transform.offset
+	_cache_fill_radius = config.corner_radius
+
+
 ## Liegt der Punkt auf dem Rand des Bretts?
 static func _on_board_border(point: Vector2) -> bool:
 	return point.x <= 1.0 or point.y <= 1.0 \
@@ -379,83 +452,109 @@ func _territories_valid(line_scale: float) -> bool:
 		and is_equal_approx(config.corner_radius, _cache_radius)
 
 
-## Vereinigung der Zellflaechen einer Farbe (Brettkoordinaten). Loecher
-## entfallen: deren Grenze zeichnet die andere Farbe.
+## Aussenkonturen der Zellflaechen einer Farbe (Brettkoordinaten).
+## Gleichfarbige Kanten werden von Anfang an entfernt. Dadurch entstehen keine
+## inneren Restpfade oder Sackgassen durch fehlerhafte Polygon-Vereinigungen.
 func _merge_cells(color: String) -> Array:
-	var pieces: Array = []
+	var boundary_segments: Array = []
 	for i in range(board.points.size()):
 		if board.cell_color(i) != color:
 			continue
 		var poly := voronoi.cell_polygon(i)
-		if poly.size() >= 3:
-			_merge_into(pieces, poly)
-	var positive := true
-	var largest := -1.0
-	for p in pieces:
-		var area := BoardGeometry.signed_polygon_area(p)
-		if absf(area) > largest:
-			largest = absf(area)
-			positive = area > 0.0
-	var out: Array = []
-	for p in pieces:
-		var area := BoardGeometry.signed_polygon_area(p)
-		if absf(area) > 0.5 and (area > 0.0) == positive:
-			out.append(p)
-	if out.size() <= 1:
-		return out
-	# Nur die groesste zusammenhaengende Aussenkontur zeichnen. Kleinere
-	# Restpolygone sind Inseln oder Clipper-Artefakte und wuerden als interne
-	# Linien innerhalb eines Territoriums erscheinen.
-	return [_largest_piece(out)]
-
-
-## Nimmt eine Zellflaeche in die Liste der Teilflaechen auf: beruehrt sie eine
-## vorhandene Flaeche, wird vereinigt (entstehende Loecher entfallen).
-func _merge_into(pieces: Array, poly: PackedVector2Array) -> void:
-	var current := poly
-	var rest: Array = []
-	for piece in pieces:
-		if current.size() < 3:
-			rest.append(piece)
+		if poly.size() < 3:
 			continue
-		var merged := Geometry2D.merge_polygons(piece, current)
-		if merged.size() == 1:
-			current = merged[0]
-		elif _same_winding(merged):
-			# Beruehrt sich nicht: getrennte Flaeche bleibt bestehen.
-			rest.append(piece)
-		else:
-			current = _largest_piece(merged)
-	rest.append(current)
-	pieces.clear()
-	pieces.append_array(rest)
+		poly = _ensure_ccw(poly)
+		var neighbors := voronoi.edge_neighbors(i)
+		for k in range(poly.size()):
+			var nb: int = neighbors[k] if k < neighbors.size() else -1
+			if nb >= 0 and board.cell_color(nb) == color:
+				continue
+			var a := poly[k]
+			var b := poly[(k + 1) % poly.size()]
+			if a.distance_squared_to(b) > 0.0001:
+				boundary_segments.append([a, b])
+	return _chain_boundary_segments(boundary_segments)
 
 
-static func _same_winding(polys: Array) -> bool:
-	var sign_positive := true
-	var first := true
-	for poly in polys:
-		var area := BoardGeometry.signed_polygon_area(poly)
-		if absf(area) <= 0.5:
+## Schliesst die gerichteten Randkanten zu vollstaendigen Konturen. Offene
+## Ketten werden verworfen; sie koennen deshalb nie als Sackgasse gezeichnet
+## werden. Die Quantisierung verbindet Umkreismittelpunkte mit minimalen
+## float32-Abweichungen sicher.
+func _chain_boundary_segments(segments: Array) -> Array:
+	var outgoing := {}
+	for segment in segments:
+		var a: Vector2 = segment[0]
+		var b: Vector2 = segment[1]
+		var from_key := _boundary_key(a)
+		var to_key := _boundary_key(b)
+		if from_key == to_key:
 			continue
-		if first:
-			sign_positive = area > 0.0
-			first = false
-		elif (area > 0.0) != sign_positive:
-			return false
-	return true
+		if not outgoing.has(from_key):
+			outgoing[from_key] = []
+		outgoing[from_key].append({"to": to_key, "from": a, "end": b})
+
+	# Ganzzahlige Schluessel statt Text: bei vielen Zellen ist das der
+	# groesste Unterschied in der Konturberechnung.
+	var paths: Array = []
+	var used := {}
+	for from_key in outgoing:
+		for edge_index in range(outgoing[from_key].size()):
+			var edge_id := Vector3i(from_key.x, from_key.y, edge_index)
+			if used.has(edge_id):
+				continue
+			var path := PackedVector2Array()
+			var start_key: Vector2i = from_key
+			var current_key: Vector2i = from_key
+			var previous_direction := Vector2.ZERO
+			var closed := false
+			while true:
+				var choices: Array = outgoing.get(current_key, [])
+				var choice_index := -1
+				for candidate_index in range(choices.size()):
+					var candidate_id := Vector3i(current_key.x, current_key.y, candidate_index)
+					if used.has(candidate_id):
+						continue
+					if choice_index < 0:
+						choice_index = candidate_index
+						continue
+					# An Kreuzungen folgt die Kontur der geringsten Drehung.
+					var candidate: Dictionary = choices[candidate_index]
+					var selected: Dictionary = choices[choice_index]
+					var candidate_turn := _positive_turn(previous_direction,
+						candidate["end"] - candidate["from"])
+					var selected_turn := _positive_turn(previous_direction,
+						selected["end"] - selected["from"])
+					if candidate_turn < selected_turn:
+						choice_index = candidate_index
+				if choice_index < 0:
+					break
+				var chosen_id := Vector3i(current_key.x, current_key.y, choice_index)
+				used[chosen_id] = true
+				var chosen: Dictionary = choices[choice_index]
+				path.append(chosen["from"])
+				previous_direction = chosen["end"] - chosen["from"]
+				current_key = chosen["to"]
+				if current_key == start_key:
+					closed = true
+					break
+				if path.size() > segments.size():
+					break
+			if closed:
+				path = BoardGeometry.simplify_polygon(path)
+				if path.size() >= 3 and absf(BoardGeometry.signed_polygon_area(path)) > 0.5:
+					paths.append(path)
+	return paths
 
 
-static func _largest_piece(polys: Array) -> PackedVector2Array:
-	var best := PackedVector2Array()
-	var best_area := -1.0
-	for poly in polys:
-		var area := absf(BoardGeometry.signed_polygon_area(poly))
-		if area > best_area:
-			best_area = area
-			best = poly
-	return best
+static func _boundary_key(point: Vector2) -> Vector2i:
+	return Vector2i(roundi(point.x * 100.0), roundi(point.y * 100.0))
 
+
+static func _positive_turn(previous: Vector2, next: Vector2) -> float:
+	if previous.length_squared() < 1e-9 or next.length_squared() < 1e-9:
+		return 0.0
+	var angle := previous.angle_to(next)
+	return angle + TAU if angle < 0.0 else angle
 
 ## Zellflaeche auf die Fuellgrenze ihres Territoriums beschneiden. So liegen
 ## die Zellfarben innerhalb der Frontlinie.
@@ -465,7 +564,7 @@ func _clip_to_territory(index: int, poly: PackedVector2Array) -> Array:
 		return [poly]
 	var out: Array = []
 	for clip in clips:
-		for part in Geometry2D.clip_polygons(poly, clip):
+		for part in Geometry2D.intersect_polygons(poly, clip):
 			if part.size() >= 3 and absf(BoardGeometry.signed_polygon_area(part)) > 0.5 \
 				and not Geometry2D.triangulate_polygon(part).is_empty():
 				out.append(part)
@@ -503,11 +602,11 @@ func _fill_fan(center: Vector2, arc: PackedVector2Array, color: Color) -> void:
 		draw_primitive(PackedVector2Array([center, arc[i], arc[i + 1]]), colors, _uvs3)
 
 
-## Uebernahme-Warnung: die groesste Gegnerzelle blinkt.
+## Uebernahme-Warnung: die gezogene Zelle blinkt.
 func _draw_takeover_blink(shapes: Array) -> void:
 	if board.drag_blink <= 0.0:
 		return
-	var index := board.drag_opponent_neighbor
+	var index := board.dragged_index
 	if index < 0 or index >= shapes.size() or shapes[index] == null:
 		return
 	var color := Color(GameConfig.BLINK_COLOR, GameConfig.BLINK_ALPHA * clampf(board.drag_blink, 0.0, 1.0))
@@ -608,19 +707,132 @@ func _rounded_outline(poly: PackedVector2Array, radius: float) -> PackedVector2A
 	return path
 
 
-## Flaechen-Text zuletzt, damit ihn weder Rahmen noch Punkte ueberdecken.
+## Zellfuellung (Fensterkoordinaten) mit Abstand zu allen Zellrahmen.
+## Dadurch bleibt die graue Rahmen- bzw. Hintergrundfarbe zwischen benachbarten
+## Zellen sichtbar. Die Territoriumsfront wird danach zusaetzlich geclippt.
+func _fill_outline(index: int, screen_poly: PackedVector2Array, line_scale: float) -> PackedVector2Array:
+	var count := screen_poly.size()
+	var radius := config.corner_radius * line_scale
+	if count < 3:
+		return screen_poly
+	var path := _rounded_outline(screen_poly, radius) if radius > 0.01 else screen_poly
+	var gap := GameConfig.SAME_COLOR_FRAME_WIDTH * line_scale * 0.5
+	if gap <= 0.01:
+		return path
+	var join := Geometry2D.JOIN_ROUND if radius > 0.01 else Geometry2D.JOIN_MITER
+	var inset := Geometry2D.offset_polygon(path, -gap, join)
+	if inset.is_empty():
+		return path
+	return BoardGeometry.largest_polygon(inset)
+
+
+## Relative Einflusswerte zuletzt, damit sie weder Rahmen noch Punkte ueberdecken.
 func _draw_cell_labels() -> void:
 	var text_size := _text_size()
 	var text_offset := (_font.get_ascent(text_size) - _font.get_descent(text_size)) * 0.5
-	for i in range(voronoi.cells.size()):
-		var poly := voronoi.cell_polygon(i)
-		var area := voronoi.area(i)
-		if poly.size() < 3 or area <= 0.01:
+	var point_radius := GameConfig.POINT_RADIUS * view_transform.scale
+	var focus := board.dragged_index if board.dragged_index >= 0 else board.hovered_index
+	if focus < 0 or focus >= voronoi.real_count:
+		return
+	var geometry := CellGeometry.from_voronoi(voronoi, true)
+	var ids := board.color_ids()
+	var focus_poly := voronoi.cell_polygon(focus)
+	if focus_poly.size() >= 3:
+		var total := Territories.relative_neighbor_total(geometry, ids, focus)
+		_draw_relative_label(focus, total, focus_poly, text_size, text_offset, point_radius)
+	for neighbor in geometry.neighbors[focus]:
+		var value := Territories.relative_neighbor_value(geometry, ids, focus, neighbor)
+		if is_zero_approx(value):
 			continue
-		var centroid := _to_screen(BoardGeometry.polygon_vertex_average(poly))
-		var label := str(BoardGeometry.js_round(area / GameConfig.AREA_TEXT_DIVISOR))
-		var text_pos := Vector2(centroid.x, centroid.y + text_offset)
-		draw_string(_font, text_pos, label, HORIZONTAL_ALIGNMENT_CENTER, 0.0, text_size, Color.BLACK)
+		var poly := voronoi.cell_polygon(neighbor)
+		if poly.size() < 3:
+			continue
+		_draw_neighbor_relative_label(focus, neighbor, value, poly, text_size, text_offset, point_radius)
+
+
+func _draw_relative_label(index: int, value: float, poly: PackedVector2Array,
+		text_size: int, text_offset: float, point_radius: float) -> void:
+	var centroid := _to_screen(BoardGeometry.polygon_centroid(poly))
+	var point := _to_screen(board.points[index])
+	var min_distance := point_radius + text_size * 0.55
+	if centroid.distance_to(point) < min_distance:
+		centroid.y += min_distance - centroid.distance_to(point) + text_size * 0.35
+	var scaled := BoardGeometry.js_round(value)
+	if scaled == 0:
+		return
+	var label := ("+" if scaled > 0 else "") + str(scaled)
+	_draw_centered_label_text(centroid, label, text_size, text_offset, Color.BLACK)
+
+
+## Zeichnet den Wert einer groesseren Nachbarzelle direkt an ihrer gemeinsamen
+## Grenze. Der kleine Versatz zeigt auf die Seite der groesseren Zelle.
+func _draw_neighbor_relative_label(focus: int, neighbor: int, value: float,
+		poly: PackedVector2Array, text_size: int, text_offset: float, point_radius: float) -> void:
+	var edge := _shared_edge(focus, neighbor)
+	if edge.size() < 2:
+		return
+	var start: Vector2 = edge[0]
+	var end: Vector2 = edge[1]
+	var midpoint := (_to_screen(start) + _to_screen(end)) * 0.5
+	var toward_neighbor := _to_screen(board.points[neighbor]) - midpoint
+	if toward_neighbor.length_squared() < 0.0001:
+		toward_neighbor = Vector2.UP
+	else:
+		toward_neighbor = toward_neighbor.normalized()
+	var position := midpoint + toward_neighbor * maxf(4.0, text_size * 0.6)
+	var scaled := BoardGeometry.js_round(value)
+	if scaled == 0:
+		return
+	var label := ("+" if scaled > 0 else "") + str(scaled)
+	_draw_rounded_label(position, label, text_size, text_offset, Color.WHITE,
+		Color(board.cell_color(neighbor)))
+
+
+func _draw_centered_label_text(center: Vector2, label: String, text_size: int,
+		text_offset: float, color: Color) -> void:
+	var text_width := _font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1.0, text_size).x
+	draw_string(_font, Vector2(center.x - text_width * 0.5, center.y + text_offset), label,
+		HORIZONTAL_ALIGNMENT_LEFT, -1.0, text_size, color)
+
+
+func _draw_rounded_label(center: Vector2, label: String, text_size: int,
+		text_offset: float, background: Color, text_color: Color) -> void:
+	var text_width := _font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1.0, text_size).x
+	var size := Vector2(text_width + text_size * 1.1, text_size * 1.7)
+	var style := StyleBoxFlat.new()
+	style.bg_color = background
+	var radius := int(round(text_size * 0.35))
+	style.corner_radius_top_left = radius
+	style.corner_radius_top_right = radius
+	style.corner_radius_bottom_left = radius
+	style.corner_radius_bottom_right = radius
+	style.corner_detail = 4
+	style.anti_aliasing = true
+	style.anti_aliasing_size = 1.0
+	draw_style_box(style, Rect2(center - size * 0.5, size))
+	_draw_centered_label_text(center, label, text_size, text_offset, text_color)
+
+
+## Liefert die laengste gemeinsame Kante zweier Voronoi-Zellen.
+func _shared_edge(first: int, second: int) -> PackedVector2Array:
+	var poly := voronoi.cell_polygon(first)
+	var neighbors := voronoi.edge_neighbors(first)
+	var best := PackedVector2Array()
+	var best_length := 0.0
+	for k in range(poly.size()):
+		var neighbor := neighbors[k] if k < neighbors.size() else -1
+		if neighbor != second:
+			continue
+		var start := poly[k]
+		var end := poly[(k + 1) % poly.size()]
+		var length := start.distance_to(end)
+		if length > best_length:
+			best_length = length
+			best = PackedVector2Array([start, end])
+	var threshold := config.boundary_label_threshold if config != null else 0.0
+	if best_length < threshold:
+		return PackedVector2Array()
+	return best
 
 
 func _draw_points() -> void:
@@ -635,7 +847,7 @@ func _draw_points() -> void:
 
 
 ## Linien zum groessten gleichen bzw. gegnerischen Nachbarn. Die Linie zum
-## Gegner blinkt bei drohender Uebernahme mit der Warnung.
+## Gegner bleibt bei der Warnung konstant sichtbar.
 func _draw_drag_lines() -> void:
 	var dragged := board.dragged_index
 	if dragged < 0 or dragged >= board.points.size():
@@ -647,108 +859,12 @@ func _draw_drag_lines() -> void:
 	if board.drag_same_neighbor >= 0 and board.drag_same_neighbor_area > my_area:
 		draw_line(origin, _to_screen(board.points[board.drag_same_neighbor]), Color.BLACK, 2.0 * line_scale, true)
 
-	if board.drag_opponent_neighbor >= 0 and board.drag_opponent_neighbor_area > my_area:
+	# Die groesste angrenzende Gegnerzelle wird immer verbunden. Die Linie
+	# dient als Orientierung und blinkt nicht mehr mit der Warnung.
+	if board.drag_opponent_neighbor >= 0:
 		var thickness := 0.5
 		if board.drag_same_neighbor_area > 0.0:
 			var ratio := board.drag_opponent_neighbor_area / board.drag_same_neighbor_area
 			thickness = 0.5 + 2.0 * minf(ratio, 1.0)
-		var alpha := 1.0 if board.drag_blink <= 0.0 else 0.3 + 0.7 * clampf(board.drag_blink, 0.0, 1.0)
 		draw_line(origin, _to_screen(board.points[board.drag_opponent_neighbor]),
-			Color(GameConfig.BLINK_COLOR, alpha), thickness * line_scale, true)
-
-
-# ------------------------------------------------------------- Farben ------
-# 1:1-Port der JS-Farbhelfer (rgbToHsl / hslToRgb / rgbToHex / mixColors),
-# inklusive der Math.round-Rundung.
-
-static func hex_to_rgb(hex: String) -> Array:
-	return [
-		hex.substr(1, 2).hex_to_int(),
-		hex.substr(3, 2).hex_to_int(),
-		hex.substr(5, 2).hex_to_int(),
-	]
-
-
-static func rgb_to_hex(r: int, g: int, b: int) -> String:
-	return "#%02x%02x%02x" % [r, g, b]
-
-
-static func rgb_to_hsl(r: int, g: int, b: int) -> Array:
-	var rf := r / 255.0
-	var gf := g / 255.0
-	var bf := b / 255.0
-	var max_v := maxf(rf, maxf(gf, bf))
-	var min_v := minf(rf, minf(gf, bf))
-	var h := 0.0
-	var s := 0.0
-	var l := (max_v + min_v) * 0.5
-	if max_v == min_v:
-		h = 0.0
-		s = 0.0
-	else:
-		var d := max_v - min_v
-		s = d / (2.0 - max_v - min_v) if l > 0.5 else d / (max_v + min_v)
-		if max_v == rf:
-			h = (gf - bf) / d + (6.0 if gf < bf else 0.0)
-		elif max_v == gf:
-			h = (bf - rf) / d + 2.0
-		else:
-			h = (rf - gf) / d + 4.0
-		h /= 6.0
-	return [h, s, l]
-
-
-static func hsl_to_rgb(h: float, s: float, l: float) -> Array:
-	if s == 0.0:
-		var val := BoardGeometry.js_round(l * 255.0)
-		return [val, val, val]
-	var q := l * (1.0 + s) if l < 0.5 else l + s - l * s
-	var p := 2.0 * l - q
-	return [
-		BoardGeometry.js_round(_hue_to_rgb(p, q, h + 1.0 / 3.0) * 255.0),
-		BoardGeometry.js_round(_hue_to_rgb(p, q, h) * 255.0),
-		BoardGeometry.js_round(_hue_to_rgb(p, q, h - 1.0 / 3.0) * 255.0),
-	]
-
-
-static func _hue_to_rgb(p: float, q: float, t: float) -> float:
-	var tt := t
-	if tt < 0.0:
-		tt += 1.0
-	if tt > 1.0:
-		tt -= 1.0
-	if tt < 1.0 / 6.0:
-		return p + (q - p) * 6.0 * tt
-	if tt < 1.0 / 2.0:
-		return q
-	if tt < 2.0 / 3.0:
-		return p + (q - p) * (2.0 / 3.0 - tt) * 6.0
-	return p
-
-
-static func mix_colors(color1: String, color2: String, factor: float) -> String:
-	var c1 := hex_to_rgb(color1)
-	var c2 := hex_to_rgb(color2)
-	return rgb_to_hex(
-		BoardGeometry.js_round(c1[0] * (1.0 - factor) + c2[0] * factor),
-		BoardGeometry.js_round(c1[1] * (1.0 - factor) + c2[1] * factor),
-		BoardGeometry.js_round(c1[2] * (1.0 - factor) + c2[2] * factor)
-	)
-
-
-## Skaliert die Helligkeit der Grundfarbe mit lum (Prozent), Farbton und
-## Saettigung bleiben.
-static func mix_color_with_grey(hex_color: String, lum: float) -> String:
-	var rgb := hex_to_rgb(hex_color)
-	var hsl := rgb_to_hsl(rgb[0], rgb[1], rgb[2])
-	var luminance: float = hsl[2]
-	var new_l := (lum / 100.0) * luminance
-	if new_l > 1.0:
-		new_l = 1.0
-	var mixed := hsl_to_rgb(hsl[0], hsl[1], new_l)
-	return rgb_to_hex(mixed[0], mixed[1], mixed[2])
-
-
-static func grey_color(lum: float) -> String:
-	var rgb := hsl_to_rgb(0.0, 0.0, lum / 100.0)
-	return rgb_to_hex(rgb[0], rgb[1], rgb[2])
+			Color(GameConfig.BLINK_COLOR), thickness * line_scale, true)

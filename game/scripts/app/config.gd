@@ -12,8 +12,16 @@ const BOARD_WIDTH := 900.0
 const BOARD_HEIGHT := 600.0
 const BOARD_AREA := BOARD_WIDTH * BOARD_HEIGHT
 
-const COLOR_PLAYER1 := "#FF8BA7"
-const COLOR_PLAYER2 := "#76FFE8"
+const COLOR_PLAYER1 := "#FF532E"
+const COLOR_PLAYER2 := "#37E5FF"
+
+## Farbstufen der Spieler (aus game/assets/spielerfarben.svg). Sie sind die
+## drei Landmarken fuer den fliessenden Groessenverlauf jeder Spielerfarbe.
+const PLAYER1_STEP_COLORS := [COLOR_PLAYER1, "#FF9945", "#FFCF6A"]
+const PLAYER2_STEP_COLORS := [COLOR_PLAYER2, "#37A5FF", "#4354FF"]
+
+## Zelle ohne Spielerfarbe (vor der Farbzuweisung): neutral wie das Brett.
+const CELL_EMPTY_COLOR := "#b2b2b2"
 
 # ------------------------------------------------- feste Spielkonstanten ---
 const DRAG_RADIUS := 10.0
@@ -25,13 +33,9 @@ const POINT_MARGIN := 30.0
 const POINT_SPREAD_FACTOR := 0.2
 
 const DUMMY_SPACING := 50.0
-const DUMMY_MARGIN := 30.0
-
-## Helligkeit der Zellfarbe (Prozent der Grundhelligkeit): die kleinste
-## Zelle ist am dunkelsten (LUM_MIN), die groesste am hellsten (LUM_MAX).
-const LUM_MIN := 20.0
-const LUM_MAX := 80.0
-const ENEMY_MIX_BASE := 0.5
+## Der Dummy-Rand liegt mindestens so weit ausserhalb wie der Standard-Rand
+## echter Punkte. Andernfalls schneiden Dummy-Halbebenen sichtbar ins Brett.
+const DUMMY_MARGIN := 50.0
 
 ## Zellen, deren Ton gerade klingt: gelb ueberlegt. Die Deckkraft folgt der
 ## Lautstaerke des Tons (siehe Synth.active_highlight_cells).
@@ -49,13 +53,12 @@ const POINT_RADIUS := 5.0
 ## eine weisse Umrandung in der Dicke der normalen Zellgrenze.
 const POINT_HOVER_COLOR := "#FFFFFF"
 
-## Kurz vor der Uebernahme der gezogenen Zelle blinken die groesste
-## gegnerische Nachbarzelle und die Verbindungslinie. Das Tempo folgt dem
-## Flaechen-Vorsprung des Gegners: je naeher am Kipp-Punkt, desto schneller.
+## Kurz vor der Uebernahme blinkt die gezogene Zelle. Die Verbindung zur
+## groessten gegnerischen Nachbarzelle bleibt als Orientierung sichtbar.
 const BLINK_COLOR := "#FFFFFF"
 const BLINK_ALPHA := 0.65
-## Ab diesem Anteil des Gegners am Nachbar-Gesamtgewicht beginnt das Blinken.
-const BLINK_WARN_RATIO := 0.34
+## Unter diesem summierten Einflusswert beginnt das Blinken.
+const BLINK_WARN_VALUE := 10.0
 ## Dauer einer Blinkphase (Sekunden) bei kleinster bzw. groesster Chance.
 const BLINK_SLOW_SEC := 0.75
 const BLINK_FAST_SEC := 0.12
@@ -84,9 +87,10 @@ const VOICE_ATTACK_MS := 60.0
 const VOICE_SMOOTH_SEC := 0.05
 const RAMP_DOWN_FREQ_SEC := 0.4
 const RAMP_DOWN_FREQ_HZ := 20.0
+## Pitch-Shift-Faktor des globalen Audiofilters in der tiefsten Phase.
+const PITCH_LOW_SCALE := 0.01
 const RAMP_DOWN_GAIN_SEC := 1.0
-## Lautstaerke des Pitch-Downs beim Verlust einer Zelle.
-const PITCH_DOWN_VOLUME := 0.4
+const PITCH_UP_FREQ_SEC := 0.3
 
 const FREQ_HIGH := 1200.0
 const FREQ_LOW := 50.0
@@ -116,8 +120,8 @@ const FALLBACK_FREQ := 220.0
 
 @export var push_factor: float = 0.2
 @export var push_radius: float = 40.0
-@export var border_margin: float = 25.0
-@export var weight_influence: float = 0.95
+@export var border_margin: float = 50.0
+@export var weight_influence: float = 1.0
 
 @export var alternating_moves: bool = true
 @export var dummy_points: bool = true
@@ -125,8 +129,12 @@ const FALLBACK_FREQ := 220.0
 @export var show_cell_numbers: bool = false
 ## Abstand zwischen zwei Farbwechseln, wenn Zellen verloren gehen (ms).
 @export var loss_step_ms: float = 25.0
+## Zeit, um eine waehrend des Drags verlorene Zelle zu retten (ms).
+@export var loss_rescue_ms: float = 1000.0
 ## Radius, mit dem die Territoriums-Grenze abgerundet wird (Brettpixel).
 @export var corner_radius: float = 8.0
+## Gemeinsame Grenzlinien unterhalb dieser Laenge erhalten kein Zahlenlabel.
+@export var boundary_label_threshold: float = 10.0
 
 @export var random_seed: int = 0
 
@@ -148,10 +156,12 @@ const SLIDERS := [
 	{"key": "cell_count", "label": "Number of Cells", "min": 2, "max": 100, "step": 1, "is_int": true, "group": "Spiel"},
 	{"key": "push_factor", "label": "Push Factor", "min": 0.0, "max": 1.0, "step": 0.01, "group": "Spiel"},
 	{"key": "push_radius", "label": "Push Radius", "min": 5.0, "max": 150.0, "step": 1.0, "group": "Spiel"},
-	{"key": "border_margin", "label": "Border Margin", "min": 5.0, "max": 50.0, "step": 1.0, "group": "Spiel"},
+	{"key": "border_margin", "label": "Border Margin", "min": 5.0, "max": 100.0, "step": 1.0, "group": "Spiel"},
 	{"key": "weight_influence", "label": "Weight Influence", "min": 0.0, "max": 1.0, "step": 0.01, "group": "Spiel"},
 	{"key": "loss_step_ms", "label": "Verlust-Schritt (ms)", "min": 0.0, "max": 300.0, "step": 5.0, "group": "Spiel"},
+	{"key": "loss_rescue_ms", "label": "Rettungszeit (ms)", "min": 0.0, "max": 5000.0, "step": 50.0, "group": "Spiel"},
 	{"key": "corner_radius", "label": "Zell-Abrundung", "min": 0.0, "max": 150.0, "step": 0.5, "group": "Darstellung"},
+	{"key": "boundary_label_threshold", "label": "Mindest-Grenzlinie", "min": 0.0, "max": 100.0, "step": 1.0, "group": "Darstellung"},
 ]
 
 const TOGGLES := [
@@ -179,13 +189,15 @@ const DEFAULTS := {
 	"cell_count": 20,
 	"push_factor": 0.2,
 	"push_radius": 40.0,
-	"border_margin": 25.0,
-	"weight_influence": 0.95,
+	"border_margin": 50.0,
+	"weight_influence": 1.0,
 	"loss_step_ms": 25.0,
+	"loss_rescue_ms": 1000.0,
 	"corner_radius": 8.0,
 	"alternating_moves": true,
 	"dummy_points": true,
 	"show_cell_numbers": false,
+	"boundary_label_threshold": 10.0,
 }
 
 func _init() -> void:
@@ -195,6 +207,12 @@ func reset_to_defaults() -> void:
 	for key in DEFAULTS:
 		set(key, DEFAULTS[key])
 	random_seed = 0
+
+## Farbstufen der Palette eines Spielers (Stufe 1, 2, 3).
+static func step_colors_for(color: String) -> Array:
+	if color == COLOR_PLAYER2:
+		return PLAYER2_STEP_COLORS
+	return PLAYER1_STEP_COLORS
 
 ## Spread-Delay in Millisekunden: ms = 50 * 20^t (Paritaet zu getSpreadTimeMs).
 func spread_time_ms() -> float:

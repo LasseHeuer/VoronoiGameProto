@@ -9,15 +9,18 @@ extends RefCounted
 var _steps: Array = []
 ## Zeit, zu der der naechste Wechsel faellig ist.
 var _next_at_ms := 0.0
+## Ein bereits angewendeter Schritt wartet noch auf sein Intervall.
+var _waiting := false
 
 
 func is_idle() -> bool:
-	return _steps.is_empty()
+	return _steps.is_empty() and not _waiting
 
 
 func clear() -> void:
 	_steps.clear()
 	_next_at_ms = 0.0
+	_waiting = false
 
 
 ## Wendet den faelligen Wechsel an. Ist die Warteschlange leer, wird zuerst
@@ -29,17 +32,21 @@ func clear() -> void:
 ## Rueckgabe: Index der Zelle, die dabei die Farbe des aktiven Spielers
 ## verloren hat (-1, wenn kein Wechsel anstand oder niemand etwas verlor).
 func advance(now_ms: float, interval_ms: float, board: BoardState, voronoi: Voronoi, iterations: int) -> int:
+	if now_ms < _next_at_ms:
+		# Nicht einmal die Kandidaten neu berechnen: beim zweiten Pass des
+		# gleichen Frames waere die Geometriearbeit ohnehin vergeblich.
+		_waiting = true
+		return -1
+	_waiting = false
 	if _steps.is_empty():
 		var candidates := Territories.color_change_steps(
-			CellGeometry.from_voronoi(voronoi), board.color_ids(), iterations)
+			CellGeometry.from_voronoi(voronoi, true), board.color_ids(), iterations)
 		if candidates.is_empty():
 			return -1
 		# Nur den aktuell besten Wechsel vormerken. Die restliche Liste wird
 		# nach jedem Wechsel neu berechnet; dadurch werden keine veralteten
 		# Entscheidungen aus einem frueheren Brettzustand abgearbeitet.
 		_steps = [candidates[0]]
-	if now_ms < _next_at_ms:
-		return -1
 	var interval := maxf(1.0, interval_ms)
 	var step: Dictionary = _steps.pop_front()
 	var cell: int = step["cell"]

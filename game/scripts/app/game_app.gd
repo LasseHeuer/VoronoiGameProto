@@ -18,6 +18,7 @@ const BOARD_RECT := Rect2(0, 0, GameConfig.BOARD_WIDTH, GameConfig.BOARD_HEIGHT)
 @onready var audio: Synth = $Audio
 @onready var settings_panel: SettingsPanel = $SettingsPanel
 @onready var show_settings_button: Button = $ShowSettingsButton
+@onready var restart_button: Button = $RestartButton
 
 var config: GameConfig
 var board: BoardState
@@ -36,13 +37,14 @@ var _last_points := PackedVector2Array()
 var _last_colors := PackedStringArray()
 ## Phase des Blink-Pulses der Uebernahme-Warnung (0..1).
 var _blink_phase := 0.0
+var _was_dragging := false
 
 
 func _ready() -> void:
 	config = GameConfig.new()
 	SettingsStore.load_into(config)
 	board = BoardState.new()
-	board.dummy_points = Territories.generate_dummy_points()
+	board.dummy_points = Territories.generate_dummy_points(config.border_margin)
 	board.use_dummy_points = config.dummy_points
 	rng = DeterministicRng.new(config.random_seed)
 
@@ -55,6 +57,7 @@ func _ready() -> void:
 	settings_panel.restart_requested.connect(restart)
 	settings_panel.hide_requested.connect(_hide_settings)
 	show_settings_button.pressed.connect(_show_settings)
+	restart_button.pressed.connect(restart)
 
 	board_input.notes_spread_requested.connect(_on_notes_spread_requested)
 	board_input.hover_cell_changed.connect(_on_hover_cell_changed)
@@ -71,6 +74,8 @@ func restart() -> void:
 	_color_steps.clear()
 	board.active_color = ""
 	board.clear_drag_visuals()
+	_was_dragging = false
+	board.dummy_points = Territories.generate_dummy_points(config.border_margin)
 	board.use_dummy_points = config.dummy_points
 	Territories.init_on_new_game(board, config, rng)
 	voronoi_plain = Voronoi.from_points(board.points, BOARD_RECT)
@@ -91,6 +96,9 @@ func _physics_process(_delta: float) -> void:
 
 	# 1) Drag-Bewegung (mousemove-Aequivalent)
 	board_input.apply_drag_motion()
+	if _was_dragging and not board_input.is_dragging():
+		audio.reset_pitch()
+	_was_dragging = board_input.is_dragging()
 
 	# 1b) Hover-Toene. Nutzt die Geometrie des letzten Ticks: im Ruhezustand
 	#     ist sie unveraendert, sonst maximal einen Tick alt.
@@ -101,8 +109,10 @@ func _physics_process(_delta: float) -> void:
 		board_view.voronoi = voronoi_main
 		return
 
-	# 2) Geometrie ohne Dummy-Punkte (frisch, fuer Gewichte und Frequenzen)
-	voronoi_plain = Voronoi.from_points(board.points, BOARD_RECT)
+	# 2) Geometrie ohne Dummy-Punkte. Nur bewegte Zellen und ihre lokale
+	# Umgebung werden aus dem vorherigen Aufbau neu berechnet.
+	var plain_changed := _changed_indices(voronoi_plain.points, board.points)
+	voronoi_plain = Voronoi.from_points(board.points, BOARD_RECT, voronoi_plain, plain_changed)
 
 	# 3) Klick in Zelle -> Noten; laufender Drag -> Dauertoene
 	board_input.consume_click(voronoi_plain)
@@ -116,8 +126,10 @@ func _physics_process(_delta: float) -> void:
 	Relaxation.push_points(board, config, weights)
 	Relaxation.update_point_positions(board)
 
-	# 5) Hauptgeometrie (mit Dummy-Punkten)
-	voronoi_main = Voronoi.from_board(board, BOARD_RECT)
+	# 5) Hauptgeometrie (mit Dummy-Punkten), ebenfalls inkrementell.
+	var main_changed := _changed_indices(voronoi_main.points, board.points)
+	voronoi_main = Voronoi.from_board(board, BOARD_RECT, 5.0, true,
+		voronoi_main, main_changed)
 
 	# 6) Rand-Clamping
 	Relaxation.clamp_to_canvas(board, config)
@@ -131,8 +143,15 @@ func _physics_process(_delta: float) -> void:
 	for i in range(passes):
 		var lost := _color_steps.advance(float(Time.get_ticks_msec()), config.loss_step_ms,
 			board, voronoi_main, GameConfig.COLOR_PROPAGATION_ITERATIONS)
-		if lost >= 0:
+		if lost >= 0 and board_input.is_dragging() \
+			and lost == board_input.dragged_index():
 			audio.pitch_down(lost, voronoi_plain)
+			board_input.notify_drag_cell_lost(lost)
+	var rescue_state := board_input.update_drag_rescue(float(Time.get_ticks_msec()))
+	if rescue_state == 1:
+		audio.pitch_up(board_input.dragged_index(), voronoi_plain)
+	elif rescue_state == -1:
+		audio.reset_pitch()
 
 	# 7b) Nach dem Loslassen breitet sich der Ton als Kaskade aus
 	#    (spreadNotes im mouseup des Originals).
@@ -174,7 +193,20 @@ func _apply_view_transform() -> void:
 	board_view.view_transform = transform
 
 
+static func _changed_indices(previous: PackedVector2Array, current: PackedVector2Array) -> PackedInt32Array:
+	var changed := PackedInt32Array()
+	if previous.size() < current.size():
+		for i in range(current.size()):
+			changed.append(i)
+		return changed
+	for i in range(current.size()):
+		if previous[i].distance_squared_to(current[i]) > 0.0001:
+			changed.append(i)
+	return changed
+
+
 func _on_setting_changed(key: String, value: Variant) -> void:
+
 	SettingsStore.save(config)
 	wake()
 	match key:

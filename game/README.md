@@ -43,7 +43,7 @@ greift erst beim Neustart.
 godot --headless --path game -s addons/gut/gut_cmdln.gd -gdir=res://tests/unit -gexit
 ```
 
-Aktueller Stand: 137 Tests / 35837 Asserts, alle gruen.
+Aktueller Stand: 144 Tests / 36014 Asserts, alle gruen.
 Abgedeckt: Geometrie, Delaunay, Voronoi (inkl. Robustheit ueber mehrere
 Bretter und Ticks), Territorien/Zugwechsel, schrittweiser Farbwechsel,
 durchgehende Territoriums-Grenzen beim Drag, Zeichnen eines kompletten
@@ -170,10 +170,14 @@ stimmen vollstaendig ueberein.
 - **Kein Scoring** und keine Punktestand-Anzeige. Das zeitbasierte
   Flaechen-Scoring (`updateScores` und die Balken) aus dem Original ist
   ersatzlos entfernt.
-- **Zellfarben** werden ueber die Helligkeit abgestuft: die kleinste Zelle
-  ist am dunkelsten (20 % der Grundhelligkeit), die groesste am hellsten
-  (80 %). Farbton und Saettigung der Grundfarbe bleiben. Das Original hat das
-  umgekehrt (grosse Zellen dunkel).
+- **Zellfarben** folgen den drei Stufen aus `assets/spielerfarben.svg`: die
+  groesste Zelle eines Spielers traegt Stufe 1, die groessere Haelfte der
+  restlichen Zellen Stufe 2 und die kleinere Haelfte Stufe 3. Die Aufteilung
+  ist relativ zu den Zellen des jeweiligen Spielers; ein Spieler mit kleineren
+  Zellen und Territorium wird also genauso abgestuft wie ein grosser. Die
+  Farben werden unveraendert verwendet: keine Mischung mit der Gegnerfarbe,
+  keine Helligkeits- oder Saettigungsaenderung. Das Original stufte
+  stattdessen ueber die Helligkeit ab (grosse Zellen dunkel).
 - **Zellraender**: zwischen zwei gleichfarbigen Zellen liegt eine duenne
   graue Linie (1.5 px) mittig auf der Kante. Zur fremden Farbe und zum
   Brettrand laeuft eine dicke Linie (5 px) in der eigenen Teamfarbe. Sie wird
@@ -218,6 +222,12 @@ stimmen vollstaendig ueberein.
 - **Wellenformen** werden bandbegrenzt (18 Harmonische) als eine Periode
   erzeugt und ueber `pitch_scale` gestimmt; der Rest der Klangformung bleibt
   wie im Original (ADSR, Lowpass, Limiter).
+- **Stimmung**: die Tonhoehe einer Zelle ist nicht mehr stufenlos, sondern
+  wird auf die naechste Note einer Skala gerundet (`audio/tuning.gd`).
+  Standard ist 12-stufig gleichstufig mit A4 = 432 Hz. Eine Stimmung besteht
+  aus Referenzfrequenz und den Verhaeltnissen einer Oktave, sodass weitere
+  Temperaturen (andere Schrittweite oder feste Intervalle) moeglich sind;
+  gesetzt wird sie ueber `Synth.tuning`.
 - **Doppelte Dummy-Ecken** (die Erzeugung erzeugt zwei Paare doppelt) sind
   bewusst nicht entdoppelt; sie erhalten wie bei d3 keine Zelle.
 - **Drag-Bewegung** wird einmal pro Tick angewendet statt pro Mausereignis;

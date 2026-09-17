@@ -30,6 +30,14 @@ func test_polygon_vertex_average() -> void:
 	assert_almost_eq(average.y, 5.0, 0.0001)
 
 
+func test_polygon_centroid_uses_area_center() -> void:
+	var poly := PackedVector2Array([
+		Vector2(0.0, 0.0), Vector2(4.0, 0.0), Vector2(1.0, 1.0)])
+	var centroid := BoardGeometry.polygon_centroid(poly)
+	assert_almost_eq(centroid.x, 5.0 / 3.0, 0.0001)
+	assert_almost_eq(centroid.y, 1.0 / 3.0, 0.0001)
+
+
 func test_point_in_polygon() -> void:
 	var square := _square()
 	assert_true(BoardGeometry.point_in_polygon(Vector2(5.0, 5.0), square))

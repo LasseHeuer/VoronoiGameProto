@@ -13,6 +13,12 @@ extends Node
 var config: GameConfig
 var board: BoardState
 
+## Stimmung der Zelltoene: jede Zelle bekommt die naechste Note dieser Skala
+## statt einer stufenlosen Tonhoehe. Standard ist 12-stufig gleichstufig mit
+## A4 = 432 Hz; fuer andere Temperaturen hier eine andere Tuning-Instanz
+## setzen (z. B. Tuning.equal_temperament(19, 432.0)).
+var tuning: Tuning = Tuning.default_tuning()
+
 var _pool: VoicePool
 var _streams := {}
 var _scheduled: Array = []
@@ -22,6 +28,11 @@ var _highlights := {}
 var _active_highlights := {}
 var _drag_tones := {}
 var _last_hover_at := -INF
+var _global_pitch_scale := 1.0
+var _global_pitch_from := 1.0
+var _global_pitch_to := 1.0
+var _global_pitch_started := -1.0
+var _global_pitch_ends := -1.0
 
 
 func setup(p_config: GameConfig, p_board: BoardState) -> void:
@@ -45,8 +56,9 @@ func active_highlight_cells() -> Dictionary:
 	return _active_highlights
 
 
-## Frequenz aus der Zellflaeche (getCellFrequency / scheduleNoteForCell).
-## Flaeche kommt aus dem Voronoi OHNE Dummy-Punkte - wie im Original.
+## Tonhoehe aus der Zellflaeche (getCellFrequency / scheduleNoteForCell).
+## Die stufenlose Frequenz wird auf die naechste Note der aktuellen Stimmung
+## gerundet. Flaeche kommt aus dem Voronoi OHNE Dummy-Punkte - wie im Original.
 func cell_frequency(plain: Voronoi, cell: int) -> float:
 	if cell < 0 or cell >= plain.cells.size():
 		return GameConfig.FALLBACK_FREQ
@@ -54,10 +66,10 @@ func cell_frequency(plain: Voronoi, cell: int) -> float:
 	var ratio := clampf(area / GameConfig.BOARD_AREA, 0.0, 1.0)
 	var threshold := config.freq_threshold
 	if threshold <= 0.0:
-		return GameConfig.FREQ_LOW
+		return tuning.nearest(GameConfig.FREQ_LOW)
 	if ratio <= threshold:
-		return GameConfig.FREQ_HIGH - (GameConfig.FREQ_HIGH - GameConfig.FREQ_LOW) * (ratio / threshold)
-	return GameConfig.FREQ_LOW
+		return tuning.nearest(GameConfig.FREQ_HIGH - (GameConfig.FREQ_HIGH - GameConfig.FREQ_LOW) * (ratio / threshold))
+	return tuning.nearest(GameConfig.FREQ_LOW)
 
 
 ## Ausbreitung beim Klick: BFS ueber die Delaunay-Nachbarn des Hauptgraphen,
@@ -154,8 +166,8 @@ static func _ramp(from_value: float, to_value: float, elapsed: float, span: floa
 	return lerpf(from_value, to_value, clampf(elapsed / span, 0.0, 1.0))
 
 
-## Leiser Ton beim Ueberfahren einer Zelle (Windspiel): nur mit
-## Mindestabstand und ohne Hervorhebung, damit die Flaeche ruhig bleibt.
+## Leiser Ton beim Ueberfahren einer Zelle (Windspiel). Die Zelle wird dabei
+## wie bei einer normalen Note kurz hervorgehoben.
 func hover_note(cell: int, plain: Voronoi) -> void:
 	if cell < 0 or plain == null:
 		return
@@ -163,7 +175,7 @@ func hover_note(cell: int, plain: Voronoi) -> void:
 	if t - _last_hover_at < GameConfig.HOVER_COOLDOWN_SEC:
 		return
 	_last_hover_at = t
-	schedule_note(cell, cell_frequency(plain, cell), t, GameConfig.HOVER_VOLUME, false)
+	schedule_note(cell, cell_frequency(plain, cell), t, GameConfig.HOVER_VOLUME, true)
 
 
 ## Drag-Dauertoene: BFS-Tiefe 2, Startzelle mit voller Lautstaerke,
@@ -225,10 +237,17 @@ func ramp_down_drag_tone(cell: int) -> void:
 ## Pitch-Down beim Verlust einer Zelle: der Ton dieser Zelle faellt sofort auf
 ## RAMP_DOWN_FREQ_HZ ab und blendet aus (wie der Rampdown im Original).
 func pitch_down(cell: int, plain: Voronoi) -> void:
-	if _pool == null:
-		return
-	var freq := cell_frequency(plain, cell) if plain != null else GameConfig.FALLBACK_FREQ
-	_pool.play_pitch_down(_pool.stream_for(config.waveform), freq, now())
+	_ramp_global_pitch(GameConfig.PITCH_LOW_SCALE, GameConfig.RAMP_DOWN_FREQ_SEC)
+
+
+## Pitch-Up nach der Rettung einer waehrend des Drags verlorenen Zelle.
+func pitch_up(cell: int, plain: Voronoi) -> void:
+	_ramp_global_pitch(1.0, GameConfig.PITCH_UP_FREQ_SEC)
+
+
+## Setzt den globalen Pitch beim Loslassen sicher auf die Normaltonhoehe.
+func reset_pitch() -> void:
+	_ramp_global_pitch(1.0, GameConfig.PITCH_UP_FREQ_SEC)
 
 
 func stop_all() -> void:
@@ -239,6 +258,12 @@ func stop_all() -> void:
 	_scheduled.clear()
 	_highlights.clear()
 	_active_highlights.clear()
+	_global_pitch_scale = 1.0
+	_global_pitch_from = 1.0
+	_global_pitch_to = 1.0
+	_global_pitch_started = -1.0
+	_global_pitch_ends = -1.0
+	AudioSetup.set_pitch_scale(1.0)
 
 
 ## Pro Frame aufrufen: faellige Noten starten, Huellkurven fortschreiben.
@@ -246,6 +271,7 @@ func process() -> void:
 	if _pool == null:
 		return
 	var t := now()
+	_update_global_pitch(t)
 	if not _scheduled.is_empty():
 		var remaining: Array = []
 		for entry in _scheduled:
@@ -256,6 +282,30 @@ func process() -> void:
 		_scheduled = remaining
 	_pool.advance(t)
 	_update_highlights(t)
+
+
+func _ramp_global_pitch(target: float, duration: float) -> void:
+	var t := now()
+	_update_global_pitch(t)
+	_global_pitch_from = _global_pitch_scale
+	_global_pitch_to = clampf(target, 0.01, 4.0)
+	_global_pitch_started = t
+	_global_pitch_ends = t + maxf(duration, 0.0)
+	if duration <= 0.0:
+		_global_pitch_scale = _global_pitch_to
+		AudioSetup.set_pitch_scale(_global_pitch_scale)
+
+
+func _update_global_pitch(t: float) -> void:
+	if _global_pitch_ends < 0.0:
+		return
+	if t >= _global_pitch_ends:
+		_global_pitch_scale = _global_pitch_to
+	else:
+		var span := _global_pitch_ends - _global_pitch_started
+		_global_pitch_scale = lerpf(_global_pitch_from, _global_pitch_to,
+			clampf((t - _global_pitch_started) / span, 0.0, 1.0))
+	AudioSetup.set_pitch_scale(_global_pitch_scale)
 
 
 ## Zellen, deren Ton gerade klingt, mit der aktuellen Deckkraft. Noch nicht
@@ -276,5 +326,6 @@ func _apply_drag_tone(cell: int, volume_factor: float, plain: Voronoi) -> void:
 	if cell < 0:
 		return
 	var freq := cell_frequency(plain, cell)
-	var voice := _pool.apply_drag_tone(cell, _pool.stream_for(config.waveform), freq, config.drag_tone_volume * volume_factor, now())
+	var voice := _pool.apply_drag_tone(cell, _pool.stream_for(config.waveform), freq,
+		config.drag_tone_volume * volume_factor, now())
 	_drag_tones[cell] = voice

@@ -32,13 +32,13 @@ func test_frequency_mapping_uses_cell_area() -> void:
 	add_child_autofree(synth)
 	synth.setup(config, board)
 
-	# Zelle 0 hat ein Sechstel des Bretts: 1200 - 1150 * (1/6) / 0.2
+	# Zelle 0 hat ein Sechstel des Bretts: 1200 - 1150 * (1/6) / 0.2, danach
+	# auf die naechste Note der Stimmung gerundet.
 	var ratio := plain.area(0) / GameConfig.BOARD_AREA
-	assert_almost_eq(synth.cell_frequency(plain, 0),
-		GameConfig.FREQ_HIGH - (GameConfig.FREQ_HIGH - GameConfig.FREQ_LOW) * (ratio / config.freq_threshold),
-		0.01)
+	var linear := GameConfig.FREQ_HIGH - (GameConfig.FREQ_HIGH - GameConfig.FREQ_LOW) * (ratio / config.freq_threshold)
+	assert_almost_eq(synth.cell_frequency(plain, 0), synth.tuning.nearest(linear), 0.01)
 	# Zelle 1 ist groesser als die Schwelle -> tiefster Ton
-	assert_almost_eq(synth.cell_frequency(plain, 1), GameConfig.FREQ_LOW, 0.01)
+	assert_almost_eq(synth.cell_frequency(plain, 1), synth.tuning.nearest(GameConfig.FREQ_LOW), 0.01)
 
 
 func test_frequency_falls_back_for_invalid_cell() -> void:
@@ -72,7 +72,7 @@ func test_spread_notes_schedules_only_cells_of_the_start_color() -> void:
 		assert_eq(float(entry["volume"]), 1.0, "Ausbreitungsnoten laufen mit voller Lautstaerke")
 
 
-func test_hover_note_is_quiet_and_without_highlight() -> void:
+func test_hover_note_is_quiet_and_highlights_the_cell() -> void:
 	var setup := _make_synth()
 	var synth: Synth = setup[0]
 	var plain: Voronoi = setup[3]
@@ -82,7 +82,7 @@ func test_hover_note_is_quiet_and_without_highlight() -> void:
 	assert_eq(synth._scheduled.size(), 1, "ein Hover-Ton wird eingeplant")
 	assert_eq(float(synth._scheduled[0]["volume"]), GameConfig.HOVER_VOLUME)
 	assert_lt(GameConfig.HOVER_VOLUME, 1.0, "Hover ist leiser als eine normale Note")
-	assert_eq(synth.active_highlight_cells().size(), 0, "Hover hebt die Zelle nicht hervor")
+	assert_true(synth._highlights.has(0), "Hover plant auch die Hervorhebung ein")
 
 
 func test_hover_notes_keep_a_minimum_distance() -> void:
@@ -203,6 +203,29 @@ func test_invalid_start_cell_is_ignored() -> void:
 	var plain: Voronoi = setup[3]
 	synth.spread_notes(main, plain, -1, Vector2.ZERO)
 	assert_eq(synth._scheduled.size(), 0)
+
+
+func test_pitch_effects_update_the_audio_frequency() -> void:
+	var setup := _make_synth()
+	var synth: Synth = setup[0]
+	var pitch_effect: AudioEffectPitchShift = null
+	var bus := AudioServer.get_bus_index(AudioSetup.BUS_SYNTH)
+	for i in range(AudioServer.get_bus_effect_count(bus)):
+		var effect := AudioServer.get_bus_effect(bus, i)
+		if effect is AudioEffectPitchShift:
+			pitch_effect = effect
+	assert_ne(pitch_effect, null, "der globale Pitch-Filter ist eingerichtet")
+	var start := synth.now()
+
+	synth.pitch_down(0, null)
+	synth._update_global_pitch(start + GameConfig.RAMP_DOWN_FREQ_SEC * 0.5)
+	assert_lt(pitch_effect.pitch_scale, 1.0, "Pitchdown senkt alle Stimmen gemeinsam")
+
+	var up_start := synth.now()
+	synth.pitch_up(0, null)
+	synth._update_global_pitch(up_start + GameConfig.PITCH_UP_FREQ_SEC * 0.5)
+	assert_gt(pitch_effect.pitch_scale, GameConfig.PITCH_LOW_SCALE,
+		"Pitchup hebt alle Stimmen gemeinsam an")
 
 
 func test_drag_tones_start_with_two_voices() -> void:

@@ -36,6 +36,8 @@ var _pending_spread_index := -1
 var _pending_spread_pos := Vector2.ZERO
 var _hover_dirty := false
 var _hover_cell := -1
+var _loss_deadline_ms := -1.0
+var _loss_active := false
 
 
 func setup(p_board: BoardState, p_config: GameConfig) -> void:
@@ -82,6 +84,9 @@ func _on_press(screen_pos: Vector2) -> void:
 		_successful_drag = false
 		_color_switched_automatically = false
 		_drag_start = board.points[hit]
+		# Der bewegte Punkt bleibt waehrend des Drags als aktive Hover-Zelle
+		# sichtbar, auch wenn seit dem Druecken kein neues Mausereignis kommt.
+		board.hovered_index = hit
 		board.clear_drag_visuals()
 		drag_volume_requested.emit(hit)
 		return
@@ -97,6 +102,13 @@ func _on_release() -> void:
 		apply_drag_motion()
 	var released_index := _dragged_index
 	var released_pos := _cursor
+	var lost_without_rescue := _loss_active \
+		and board.cell_color(_dragged_index) != board.active_color
+	if lost_without_rescue:
+		_finish_automatic_switch()
+		released_index = -1
+	_loss_active = false
+	_loss_deadline_ms = -1.0
 	_dragging = false
 	_dragged_index = -1
 	if config != null and config.alternating_moves:
@@ -108,9 +120,21 @@ func _on_release() -> void:
 	if board != null:
 		board.clear_drag_visuals()
 	if released_index >= 0:
+		# Der zuletzt bewegte Punkt bleibt direkt nach dem Loslassen aktiv. So
+		# gehen Umrandung und Hover-Ton auch ohne weiteres Mausereignis nicht
+		# verloren.
+		_hover_cell = released_index
+		_hover_dirty = false
+		board.hovered_index = released_index
+		hover_cell_changed.emit(released_index)
 		_pending_spread = true
 		_pending_spread_index = released_index
 		_pending_spread_pos = released_pos
+	else:
+		# Bei einem automatischen Farbwechsel kann keine Drag-Zelle uebernommen
+		# werden; die Mausposition wird beim naechsten Ereignis neu bestimmt.
+		_hover_cell = -1
+		_hover_dirty = true
 
 
 ## Zug-Erlaubnis und Klick-Hit-Test brauchen die Geometrie des Ticks.
@@ -175,9 +199,8 @@ func update_hover(plain: Voronoi) -> void:
 
 ## Bewegung des gezogenen Punktes (mousemove-Aequivalent), einmal pro Tick.
 ##
-## Der Punkt folgt dem Zeiger auf dem Strahl vom Startpunkt aus. Wechselt die
-## Zelle dabei die Farbe, endet der Zug mit automatischem Farbwechsel
-## (should_switch_automatically).
+## Der Punkt folgt dem Zeiger auf dem Strahl vom Startpunkt aus. Ein Farbverlust
+## wird nach der Farbausbreitung separat ueber die Rettungszeit behandelt.
 func apply_drag_motion() -> void:
 	if not _dragging or _dragged_index < 0:
 		return
@@ -212,19 +235,44 @@ func apply_drag_motion() -> void:
 		revert[_dragged_index] = from
 		board.points = revert
 
-	var moved_distance := board.points[_dragged_index].distance_to(_drag_start)
-	if Turns.should_switch_automatically(board, _dragged_index, config, moved_distance):
-		var new_color := board.cell_color(_dragged_index)
-		drag_tone_ramp_down_requested.emit(_dragged_index)
-		drag_tones_stop_requested.emit(_dragged_index)
-		_dragging = false
-		_dragged_index = -1
-		board.active_color = new_color
-		_color_switched_automatically = true
-		board.clear_drag_visuals()
-		return
-
 	drag_volume_requested.emit(_dragged_index)
+
+
+## Meldet den Verlust der gezogenen Zelle und startet deren Rettungszeit.
+func notify_drag_cell_lost(cell_index: int) -> void:
+	if not config.alternating_moves or not _dragging or cell_index != _dragged_index:
+		return
+	_loss_active = true
+	_loss_deadline_ms = float(Time.get_ticks_msec()) + config.loss_rescue_ms
+
+
+## Gibt 1 bei Rettung, -1 bei abgelaufener Rettungszeit und 0 sonst zurueck.
+func update_drag_rescue(now_ms: float) -> int:
+	if not _loss_active or not _dragging or _dragged_index < 0:
+		return 0
+	if board.cell_color(_dragged_index) == board.active_color:
+		_loss_active = false
+		_loss_deadline_ms = -1.0
+		return 1
+	if now_ms < _loss_deadline_ms:
+		return 0
+	_finish_automatic_switch()
+	return -1
+
+
+func _finish_automatic_switch() -> void:
+	if _dragged_index < 0:
+		return
+	var new_color := board.cell_color(_dragged_index)
+	drag_tone_ramp_down_requested.emit(_dragged_index)
+	drag_tones_stop_requested.emit(_dragged_index)
+	_dragging = false
+	_dragged_index = -1
+	_loss_active = false
+	_loss_deadline_ms = -1.0
+	board.active_color = new_color
+	_color_switched_automatically = true
+	board.clear_drag_visuals()
 
 
 ## Liegt der Zeiger zu nah an einem anderen Punkt?
@@ -237,18 +285,25 @@ func _is_too_close() -> bool:
 	return false
 
 
-## Wie nahe ist die gezogene Zelle an der Uebernahme? Die Ausbreitung kippt
-## sie, sobald ihr groesster sichtbarer Nachbar die Gegnerfarbe traegt. Mass
-## ist der Flaechen-Vorsprung des groessten Gegners gegenueber dem groessten
-## gleichfarbigen Nachbarn: 0 = keine Gefahr, 1 = unmittelbar am Kipp-Punkt.
-func _takeover_warning() -> float:
-	var opponent := board.drag_opponent_neighbor_area
-	var same := board.drag_same_neighbor_area
-	var total := opponent + same
-	if total <= 0.0:
+## Blinkintensitaet aus dem summierten relativen Einfluss der Drag-Zelle.
+func _takeover_warning(main: Voronoi) -> float:
+	if main == null:
 		return 0.0
-	var ratio := opponent / total
-	return clampf((ratio - GameConfig.BLINK_WARN_RATIO) / (0.5 - GameConfig.BLINK_WARN_RATIO), 0.0, 1.0)
+	var geometry := CellGeometry.from_voronoi(main, true)
+	var ids := board.color_ids()
+	var total := 0.0
+	var has_opponent_pressure := board.drag_opponent_neighbor >= 0 \
+		and board.drag_opponent_neighbor_area > main.area(_dragged_index)
+	if _dragged_index >= 0 and _dragged_index < geometry.neighbors.size():
+		for neighbor in geometry.neighbors[_dragged_index]:
+			var value := Territories.relative_neighbor_value(
+				geometry, ids, _dragged_index, neighbor)
+			total += value
+			if value < 0.0:
+				has_opponent_pressure = true
+	if not has_opponent_pressure:
+		return 0.0
+	return clampf((GameConfig.BLINK_WARN_VALUE - total) / GameConfig.BLINK_WARN_VALUE, 0.0, 1.0)
 
 
 ## Linien zum groessten gleichen bzw. gegnerischen Nachbarn und die Warnung
@@ -264,7 +319,7 @@ func update_drag_visuals(main: Voronoi) -> void:
 	board.drag_same_neighbor_area = same["max_area"]
 	board.drag_opponent_neighbor = other["cell_id"]
 	board.drag_opponent_neighbor_area = other["max_area"]
-	board.drag_warn = _takeover_warning()
+	board.drag_warn = _takeover_warning(main)
 
 
 func _hit_point(pos: Vector2) -> int:

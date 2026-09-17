@@ -11,7 +11,7 @@ func _board_with_two_changes() -> Array:
 	var board := BoardState.new()
 	board.points = PackedVector2Array([
 		Vector2(60.0, 290.0), Vector2(180.0, 310.0),
-		Vector2(420.0, 300.0), Vector2(780.0, 305.0)])
+		Vector2(350.0, 300.0), Vector2(780.0, 305.0)])
 	board.dummy_points = PackedVector2Array()
 	board.reset_colors()
 	board.set_cell_color(0, GameConfig.COLOR_PLAYER2)

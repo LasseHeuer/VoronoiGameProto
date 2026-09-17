@@ -147,6 +147,17 @@ func test_min_max_area() -> void:
 	assert_gt(min_max.y, min_max.x)
 
 
+func test_incremental_build_matches_full_rebuild() -> void:
+	var board := _make_board(30, 2026)
+	var previous := Voronoi.from_points(board.points, RECT)
+	board.points[0] += Vector2(3.0, 1.0)
+	var incremental := Voronoi.from_points(board.points, RECT, previous, PackedInt32Array([0]))
+	var full := Voronoi.from_points(board.points, RECT)
+	for i in range(board.points.size()):
+		assert_almost_eq(incremental.area(i), full.area(i), 0.01,
+			"inkrementelle Flaeche stimmt fuer Zelle %d" % i)
+
+
 func test_cells_stay_valid_during_simulation() -> void:
 	# Ueber mehrere Seeds und Ticks muss jede Zelle konvex bleiben und sich
 	# triangulieren lassen (Grundlage fuer das Zeichnen).

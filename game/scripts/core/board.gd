@@ -33,7 +33,7 @@ var drag_opponent_neighbor_area := 0.0
 ## Warnung vor der Uebernahme der gezogenen Zelle: 0 = keine Gefahr,
 ## 1 = unmittelbar davor. Geschrieben von input/board_input.gd.
 var drag_warn := 0.0
-## Aktueller Blink-Puls (0..1) fuer Gegnerzelle und Verbindungslinie.
+## Aktueller Blink-Puls (0..1) fuer die gezogene Zelle.
 var drag_blink := 0.0
 
 

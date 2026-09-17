@@ -46,31 +46,37 @@ static func push_points(board: BoardState, config: GameConfig, weights: PackedFl
 	var push_factor := config.push_factor
 	var push_radius := config.push_radius
 	var push_radius_sq := push_radius * push_radius
+	var grid := _build_spatial_grid(points, push_radius)
 	for i in range(count):
-		for j in range(i + 1, count):
-			var pi := points[i]
-			var pj := points[j]
-			var diff := pj - pi
-			var dist_sq := diff.length_squared()
-			if dist_sq >= push_radius_sq or dist_sq <= 0.00000001:
-				continue
-			var dist := sqrt(dist_sq)
-			var direction := diff / dist
-			var overlap := (push_radius - dist) * push_factor
-			var half := overlap * 0.5
-			var w_i := weights[i]
-			var w_j := weights[j]
-			if absf(size_influence - 1.0) < 0.000001 and w_i != w_j:
-				if w_i > w_j:
-					points[j] = pj + direction * overlap
-				else:
-					points[i] = pi - direction * overlap
-			else:
-				var eff_i := 1.0 + (w_i - 1.0) * size_influence
-				var eff_j := 1.0 + (w_j - 1.0) * size_influence
-				var total := eff_i + eff_j
-				points[i] = pi - direction * (half * (eff_j / total))
-				points[j] = pj + direction * (half * (eff_i / total))
+		var grid_pos := _grid_position(points[i], push_radius)
+		for gx in range(grid_pos.x - 2, grid_pos.x + 3):
+			for gy in range(grid_pos.y - 2, grid_pos.y + 3):
+				for j in grid.get(Vector2i(gx, gy), []):
+					if j <= i:
+						continue
+					var pi := points[i]
+					var pj := points[j]
+					var diff := pj - pi
+					var dist_sq := diff.length_squared()
+					if dist_sq >= push_radius_sq or dist_sq <= 0.00000001:
+						continue
+					var dist := sqrt(dist_sq)
+					var direction := diff / dist
+					var overlap := (push_radius - dist) * push_factor
+					var half := overlap * 0.5
+					var w_i := weights[i]
+					var w_j := weights[j]
+					if absf(size_influence - 1.0) < 0.000001 and w_i != w_j:
+						if w_i > w_j:
+							points[j] = pj + direction * overlap
+						else:
+							points[i] = pi - direction * overlap
+					else:
+						var eff_i := 1.0 + (w_i - 1.0) * size_influence
+						var eff_j := 1.0 + (w_j - 1.0) * size_influence
+						var total := eff_i + eff_j
+						points[i] = pi - direction * (half * (eff_j / total))
+						points[j] = pj + direction * (half * (eff_i / total))
 	board.points = points
 
 
@@ -81,20 +87,46 @@ static func push_points_no_weight(board: BoardState, config: GameConfig) -> void
 	var push_factor := config.push_factor
 	var push_radius := config.push_radius
 	var push_radius_sq := push_radius * push_radius
+	var grid := _build_spatial_grid(points, push_radius)
 	for i in range(count):
-		for j in range(i + 1, count):
-			var pi := points[i]
-			var pj := points[j]
-			var diff := pj - pi
-			var dist_sq := diff.length_squared()
-			if dist_sq >= push_radius_sq or dist_sq <= 0.00000001:
-				continue
-			var dist := sqrt(dist_sq)
-			var direction := diff / dist
-			var half := (push_radius - dist) * push_factor * 0.5
-			points[i] = pi - direction * half
-			points[j] = pj + direction * half
+		var grid_pos := _grid_position(points[i], push_radius)
+		for gx in range(grid_pos.x - 2, grid_pos.x + 3):
+			for gy in range(grid_pos.y - 2, grid_pos.y + 3):
+				for j in grid.get(Vector2i(gx, gy), []):
+					if j <= i:
+						continue
+					var pi := points[i]
+					var pj := points[j]
+					var diff := pj - pi
+					var dist_sq := diff.length_squared()
+					if dist_sq >= push_radius_sq or dist_sq <= 0.00000001:
+						continue
+					var dist := sqrt(dist_sq)
+					var direction := diff / dist
+					var half := (push_radius - dist) * push_factor * 0.5
+					points[i] = pi - direction * half
+					points[j] = pj + direction * half
 	board.points = points
+
+
+## Spatial Hash statt eines vollstaendigen Paarscans. Das Raster wird pro
+## Kraeftepass einmal aufgebaut; ein Radius von zwei Rasterzellen deckt auch
+## Paare ab, die durch vorherige Verschiebungen innerhalb des Passes naeher
+## zusammenruecken. Die Reihenfolge bleibt deterministisch.
+static func _build_spatial_grid(points: PackedVector2Array, cell_size: float) -> Dictionary:
+	var grid := {}
+	var safe_size := maxf(cell_size, 1.0)
+	for i in range(points.size()):
+		var key := _grid_position(points[i], safe_size)
+		if not grid.has(key):
+			grid[key] = []
+		grid[key].append(i)
+	return grid
+
+
+static func _grid_position(point: Vector2, cell_size: float) -> Vector2i:
+	var safe_size := maxf(cell_size, 1.0)
+	return Vector2i(floori(point.x / safe_size), floori(point.y / safe_size))
 
 
 ## Geschwindigkeiten daempfen und anwenden (updatePointPositions).

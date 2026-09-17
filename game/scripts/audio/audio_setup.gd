@@ -1,9 +1,9 @@
 class_name AudioSetup
 extends RefCounted
 
-## Bus-Layout: alle Stimmen laufen ueber den Bus "Synth" (globaler
-## Lowpass mit dem Cutoff-Regler) und danach ueber "Master", auf dem der
-## Limiter als Kompressor sitzt.
+## Bus-Layout: alle Stimmen laufen ueber den Bus "Synth" (globaler Lowpass
+## und globaler Pitch-Shift) und danach ueber "Master", auf dem der Limiter
+## als Kompressor sitzt.
 ##
 ## Gegenstueck zum Web-Audio-Aufbau aus src/core.js: pro Note wurde dort
 ## ein eigener Biquad-Filter gesetzt - da der Cutoff global ist, ist ein
@@ -29,6 +29,7 @@ static func ensure_layout(config: GameConfig) -> void:
 		AudioServer.set_bus_name(synth, BUS_SYNTH)
 		AudioServer.set_bus_send(synth, "Master")
 	_ensure_lowpass(synth, config.cutoff)
+	_ensure_pitch_shift(synth)
 
 
 static func apply_cutoff(config: GameConfig) -> void:
@@ -42,6 +43,17 @@ static func apply_cutoff(config: GameConfig) -> void:
 			return
 
 
+static func set_pitch_scale(value: float) -> void:
+	var synth := AudioServer.get_bus_index(BUS_SYNTH)
+	if synth < 0:
+		return
+	for i in range(AudioServer.get_bus_effect_count(synth)):
+		var effect := AudioServer.get_bus_effect(synth, i)
+		if effect is AudioEffectPitchShift:
+			(effect as AudioEffectPitchShift).pitch_scale = clampf(value, 0.01, 4.0)
+			return
+
+
 static func _ensure_lowpass(bus: int, cutoff: float) -> void:
 	for i in range(AudioServer.get_bus_effect_count(bus)):
 		var existing := AudioServer.get_bus_effect(bus, i)
@@ -50,6 +62,17 @@ static func _ensure_lowpass(bus: int, cutoff: float) -> void:
 			return
 	var filter := AudioEffectLowPassFilter.new()
 	filter.cutoff_hz = cutoff
+	AudioServer.add_bus_effect(bus, filter)
+
+
+static func _ensure_pitch_shift(bus: int) -> void:
+	for i in range(AudioServer.get_bus_effect_count(bus)):
+		var existing := AudioServer.get_bus_effect(bus, i)
+		if existing is AudioEffectPitchShift:
+			(existing as AudioEffectPitchShift).pitch_scale = 1.0
+			return
+	var filter := AudioEffectPitchShift.new()
+	filter.pitch_scale = 1.0
 	AudioServer.add_bus_effect(bus, filter)
 
 

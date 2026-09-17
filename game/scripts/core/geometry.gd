@@ -42,6 +42,23 @@ static func polygon_vertex_average(poly: PackedVector2Array) -> Vector2:
 		acc += p
 	return acc / float(poly.size())
 
+
+## Flaechenschwerpunkt eines einfachen Polygons. Bei entarteten Polygonen
+## faellt die Funktion auf den Eckpunktmittelwert zurueck.
+static func polygon_centroid(poly: PackedVector2Array) -> Vector2:
+	if poly.size() < 3:
+		return polygon_vertex_average(poly)
+	var twice_area := 0.0
+	var weighted := Vector2.ZERO
+	for i in range(poly.size()):
+		var next := poly[(i + 1) % poly.size()]
+		var cross := poly[i].cross(next)
+		twice_area += cross
+		weighted += (poly[i] + next) * cross
+	if absf(twice_area) < EPS:
+		return polygon_vertex_average(poly)
+	return weighted / (3.0 * twice_area)
+
 ## Ray-Casting wie pointInPolygon() in core.js.
 static func point_in_polygon(pt: Vector2, poly: PackedVector2Array) -> bool:
 	var inside := false

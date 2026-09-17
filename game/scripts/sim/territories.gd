@@ -6,6 +6,10 @@ extends RefCounted
 ## Reine Logik auf BoardState + Voronoi, keine Node-Abhaengigkeit.
 ## Ergebnis- und Reihenfolge-Paritaet zur JS-Version aus src/core.js.
 
+## Gleichstand bleibt stabil; ein positiver Nettovorsprung reicht fuer den
+## Farbwechsel aus.
+const COLOR_SWITCH_MARGIN_RATIO := 0.0
+
 ## Erzeugt 2 * cell_count Punkte: links zufaellig, rechts gespiegelt
 ## (generateRandomButMirroredPoints). Die Verdopplung ist gewollt und
 ## wurde aus der JS-Version uebernommen.
@@ -29,11 +33,11 @@ static func generate_points(config: GameConfig, rng: DeterministicRng) -> Packed
 	return arr
 
 
-static func generate_dummy_points() -> PackedVector2Array:
+static func generate_dummy_points(border_margin := GameConfig.DUMMY_MARGIN) -> PackedVector2Array:
 	var w := GameConfig.BOARD_WIDTH
 	var h := GameConfig.BOARD_HEIGHT
 	var spacing := GameConfig.DUMMY_SPACING
-	var margin := GameConfig.DUMMY_MARGIN
+	var margin := maxf(float(border_margin), GameConfig.DUMMY_MARGIN)
 	var pts := PackedVector2Array()
 	var x := -margin
 	while x <= w + margin:
@@ -70,7 +74,7 @@ static func init_on_new_game(board: BoardState, config: GameConfig, rng: Determi
 
 		main = Voronoi.from_board(board, Rect2(0, 0, GameConfig.BOARD_WIDTH, GameConfig.BOARD_HEIGHT))
 		init_color_territories(board, config, main)
-		update_colors_by_largest_neighbor(board, main, GameConfig.COLOR_PROPAGATION_ITERATIONS)
+		update_colors_by_largest_neighbor(board, main, GameConfig.COLOR_PROPAGATION_ITERATIONS, 0.0)
 		main = Voronoi.from_board(board, Rect2(0, 0, GameConfig.BOARD_WIDTH, GameConfig.BOARD_HEIGHT))
 
 		var area1 := total_area_for_color(board, main, GameConfig.COLOR_PLAYER1)
@@ -86,7 +90,7 @@ static func init_on_new_game(board: BoardState, config: GameConfig, rng: Determi
 ## Setzt die beiden Seed-Zellen (groesste Zelle + groesste nicht
 ## benachbarte Zelle) und gleicht die Flaechen aus (initColorTerritories).
 ## Seed-Auswahl und Flaechen kommen aus dem Voronoi OHNE Dummy-Punkte,
-## der Ausgleich aus `main` (mit Dummy-Punkten) - wie im Original.
+## die Ausbreitung aus `main` (mit Dummy-Punkten) - wie im Original.
 static func init_color_territories(board: BoardState, config: GameConfig, main: Voronoi) -> void:
 	var plain := Voronoi.from_points(board.points, Rect2(0, 0, GameConfig.BOARD_WIDTH, GameConfig.BOARD_HEIGHT))
 	var areas := PackedFloat32Array()
@@ -120,7 +124,7 @@ static func init_color_territories(board: BoardState, config: GameConfig, main: 
 	var area1 := 0.0
 	var area2 := 0.0
 	while true:
-		update_colors_by_largest_neighbor(board, main, GameConfig.COLOR_PROPAGATION_ITERATIONS)
+		update_colors_by_largest_neighbor(board, main, GameConfig.COLOR_PROPAGATION_ITERATIONS, 0.0)
 		area1 = total_area_for_color(board, main, GameConfig.COLOR_PLAYER1)
 		area2 = total_area_for_color(board, main, GameConfig.COLOR_PLAYER2)
 		iter += 1
@@ -128,15 +132,76 @@ static func init_color_territories(board: BoardState, config: GameConfig, main: 
 			break
 
 
+## Stellt sicher, dass die beiden Spieler gleich viele Zellen besitzen. Bei
+## einer ungeraden Zellzahl beginnt Spieler 1 mit genau einer Zelle Vorsprung.
+## Die Kandidaten werden nach der kleinsten Flaechenabweichung gewaehlt, damit
+## die bereits ausgeglichene Startflaeche moeglichst wenig veraendert wird.
+static func balance_color_counts(board: BoardState, voronoi: Voronoi) -> void:
+	var total := board.points.size()
+	var target1 := ceili(total * 0.5)
+	var indices1: Array = []
+	var indices2: Array = []
+	var uncolored: Array = []
+	for i in range(total):
+		match board.cell_color(i):
+			GameConfig.COLOR_PLAYER1:
+				indices1.append(i)
+			GameConfig.COLOR_PLAYER2:
+				indices2.append(i)
+			_:
+				uncolored.append(i)
+
+	for index in uncolored:
+		if indices1.size() < target1:
+			board.set_cell_color(index, GameConfig.COLOR_PLAYER1)
+			indices1.append(index)
+		else:
+			board.set_cell_color(index, GameConfig.COLOR_PLAYER2)
+			indices2.append(index)
+
+	while indices1.size() > target1:
+		var move1 := _best_recolor_candidate(indices1, board, voronoi, true)
+		indices1.erase(move1)
+		indices2.append(move1)
+		board.set_cell_color(move1, GameConfig.COLOR_PLAYER2)
+	while indices1.size() < target1:
+		var move2 := _best_recolor_candidate(indices2, board, voronoi, false)
+		indices2.erase(move2)
+		indices1.append(move2)
+		board.set_cell_color(move2, GameConfig.COLOR_PLAYER1)
+
+
+static func _best_recolor_candidate(indices: Array, board: BoardState, voronoi: Voronoi,
+		from_player1: bool) -> int:
+	var best := int(indices[0])
+	var best_cost := INF
+	var area_diff := 0.0
+	for i in range(voronoi.real_count):
+		if board.cell_color(i) == GameConfig.COLOR_PLAYER1:
+			area_diff += voronoi.area(i)
+		elif board.cell_color(i) == GameConfig.COLOR_PLAYER2:
+			area_diff -= voronoi.area(i)
+	for index in indices:
+		var area := voronoi.area(index)
+		var cost := absf(area_diff - 2.0 * area)
+		if cost < best_cost or (is_equal_approx(cost, best_cost) and index < best):
+			best = index
+			best_cost = cost
+	return best
+
+
 ## Farbausbreitung: jede Zelle uebernimmt die Farbe ihres groessten
 ## sichtbaren Nachbarn (updateColorsByLargestNeighbor).
-static func update_colors_by_largest_neighbor(board: BoardState, voronoi: Voronoi, iterations: int) -> void:
-	board.apply_color_ids(propagate_ids(CellGeometry.from_voronoi(voronoi), board.color_ids(), iterations))
+static func update_colors_by_largest_neighbor(board: BoardState, voronoi: Voronoi, iterations: int,
+		switch_margin_ratio := COLOR_SWITCH_MARGIN_RATIO) -> void:
+	board.apply_color_ids(propagate_ids(CellGeometry.from_voronoi(voronoi, true), board.color_ids(),
+		iterations, switch_margin_ratio))
 
 
 ## Farbschluessel nach der Ausbreitung. `ids` wird dabei veraendert.
-static func propagate_ids(geometry: CellGeometry, ids: PackedByteArray, iterations: int) -> PackedByteArray:
-	for step in color_change_steps(geometry, ids, iterations):
+static func propagate_ids(geometry: CellGeometry, ids: PackedByteArray, iterations: int,
+		switch_margin_ratio := COLOR_SWITCH_MARGIN_RATIO) -> PackedByteArray:
+	for step in color_change_steps(geometry, ids, iterations, switch_margin_ratio):
 		ids[step["cell"]] = step["color"]
 	return ids
 
@@ -144,7 +209,8 @@ static func propagate_ids(geometry: CellGeometry, ids: PackedByteArray, iteratio
 ## Einzelne Farbwechsel der Ausbreitung in der Reihenfolge, in der sie
 ## passieren (Zelle, neue Farbe). `ids` bleibt unveraendert; die Liste eignet
 ## sich zum schrittweisen Anwenden.
-static func color_change_steps(geometry: CellGeometry, ids: PackedByteArray, iterations: int) -> Array:
+static func color_change_steps(geometry: CellGeometry, ids: PackedByteArray, iterations: int,
+		switch_margin_ratio := COLOR_SWITCH_MARGIN_RATIO) -> Array:
 	var n := mini(geometry.count(), ids.size())
 	if n == 0 or iterations <= 0:
 		return []
@@ -161,23 +227,102 @@ static func color_change_steps(geometry: CellGeometry, ids: PackedByteArray, ite
 		for i in order:
 			if i >= n:
 				continue
-			var max_area := -1.0
-			var max_id := 0
+			var support := {}
 			for nb in geometry.neighbors[i]:
 				if nb >= n:
 					continue
 				var nb_id := work[nb]
 				if nb_id == 0:
 					continue
-				var nb_area := geometry.areas[nb]
-				if nb_area > max_area:
-					max_area = nb_area
-					max_id = nb_id
-			if max_id != 0 and work[i] != max_id:
-				work[i] = max_id
-				steps.append({"cell": i, "color": max_id})
+				var influence := relative_neighbor_value(geometry, work, i, nb)
+				if is_zero_approx(influence):
+					continue
+				support[nb_id] = float(support.get(nb_id, 0.0)) + absf(influence)
+
+			var current_id := work[i]
+			var target_id := 0
+			var target_support := 0.0
+			for color_id in support:
+				var value: float = support[color_id]
+				if value > target_support:
+					target_support = value
+					target_id = int(color_id)
+
+			# Ungefaerbte Zellen werden weiterhin von ihrem staerksten
+			# angrenzenden Gebiet erreicht, auch wenn sie selbst groesser sind.
+			if current_id == 0:
+				var fallback_area := -1.0
+				for nb in geometry.neighbors[i]:
+					if nb >= n or work[nb] == 0:
+						continue
+					if geometry.areas[nb] > fallback_area:
+						fallback_area = geometry.areas[nb]
+						target_id = work[nb]
+				if target_id != 0:
+					work[i] = target_id
+					steps.append({"cell": i, "color": target_id})
+					changed = true
+				continue
+
+			var current_support: float = float(support.get(current_id, 0.0))
+			# Der Nettowert ist eigener Support minus gegnerischer Support.
+			# Bei Gleichstand bleibt die bisherige Farbe erhalten.
+			if target_id != 0 and target_id != current_id \
+				and target_support > current_support \
+				and target_support > current_support * (1.0 + switch_margin_ratio):
+				work[i] = target_id
+				steps.append({"cell": i, "color": target_id})
 				changed = true
 	return steps
+
+
+## Rohwert des relativen Einflusses. Entscheidend ist, wie viel groesser der
+## Nachbar ist; dieser Groessenueberschuss wird mit der Laenge der gemeinsamen
+## Zellgrenze gewichtet.
+static func relative_neighbor_raw_value(geometry: CellGeometry, ids: PackedByteArray,
+		cell_index: int, neighbor_index: int) -> float:
+	if cell_index < 0 or cell_index >= geometry.count() \
+		or neighbor_index < 0 or neighbor_index >= geometry.count() \
+		or neighbor_index >= ids.size() or cell_index >= ids.size():
+		return 0.0
+	var delta := geometry.areas[neighbor_index] - geometry.areas[cell_index]
+	if delta <= 0.0 or ids[neighbor_index] == 0:
+		return 0.0
+	var edge_length := 1.0
+	if cell_index < geometry.edge_lengths.size():
+		var lengths: Dictionary = geometry.edge_lengths[cell_index]
+		edge_length = float(lengths.get(neighbor_index, 0.0))
+	if edge_length <= 0.0:
+		return 0.0
+	var weighted_delta := delta * edge_length
+	if ids[neighbor_index] == ids[cell_index]:
+		return weighted_delta
+	return -weighted_delta
+
+
+## Global skalierter Einfluss eines Nachbarn. Der groesste gewichtete Wert des
+## gesamten Spielfelds entspricht 100; alle anderen Werte bleiben proportional.
+## Der Groessenueberschuss bleibt mit der gemeinsamen Zellgrenze gewichtet.
+static func relative_neighbor_value(geometry: CellGeometry, ids: PackedByteArray,
+		cell_index: int, neighbor_index: int) -> float:
+	var raw := relative_neighbor_raw_value(geometry, ids, cell_index, neighbor_index)
+	if is_zero_approx(raw) or cell_index < 0 or cell_index >= geometry.neighbors.size():
+		return 0.0
+	var largest_raw := geometry.max_weighted_area_delta()
+	if largest_raw <= 0.0:
+		return 0.0
+	return raw / largest_raw * 100.0
+
+
+## Summe aller relativen Nachbareinfluesse einer Zelle.
+static func relative_neighbor_total(geometry: CellGeometry, ids: PackedByteArray,
+		cell_index: int) -> float:
+	var total := 0.0
+	if cell_index < 0 or cell_index >= geometry.neighbors.size():
+		return total
+	for neighbor_index in geometry.neighbors[cell_index]:
+		total += relative_neighbor_value(geometry, ids, cell_index, neighbor_index)
+	return total
 
 
 ## Groesster sichtbarer Nachbar mit der Zielfarbe

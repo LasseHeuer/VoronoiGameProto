@@ -31,17 +31,31 @@ var real_count := 0
 var _delaunay: Delaunay
 var _edge_lengths := {}
 var _edge_neighbors := {}
+var _circumcenters := PackedVector2Array()
 
 
-static func build(delaunay: Delaunay, bounds: Rect2, min_edge := 5.0, real_count := -1, with_visible_neighbors := true) -> Voronoi:
+static func build(delaunay: Delaunay, bounds: Rect2, min_edge := 5.0, real_count := -1, with_visible_neighbors := true, previous: Voronoi = null, changed_indices := PackedInt32Array()) -> Voronoi:
 	var v := Voronoi.new()
 	v._delaunay = delaunay
 	v.points = delaunay.points
 	v.rect = bounds
 	v.real_count = real_count if real_count >= 0 else delaunay.points.size()
-	v._build_cells()
+	if previous != null and (previous.real_count != v.real_count \
+		or previous.points.size() != v.points.size()):
+		previous = null
+	if previous != null and previous.real_count == v.real_count \
+		and previous.points == v.points and changed_indices.is_empty():
+		return previous
+	var affected := v._affected_indices(previous, changed_indices)
+	v._build_cells(previous, affected)
+	if previous != null:
+		# Kanten-Nachbarschaften weit entfernter Zellen bleiben gueltig und
+		# werden uebernommen; nur bewegte Zellen berechnen sie neu.
+		v._edge_neighbors = previous._edge_neighbors.duplicate()
+		for index in affected:
+			v._edge_neighbors.erase(index)
 	if with_visible_neighbors:
-		v._build_visible_neighbors(min_edge)
+		v._build_visible_neighbors(min_edge, previous, affected)
 	else:
 		v.visible_neighbors = []
 		for i in range(v.real_count):
@@ -50,14 +64,14 @@ static func build(delaunay: Delaunay, bounds: Rect2, min_edge := 5.0, real_count
 
 
 ## Voronoi inklusive Dummy-Punkten (entspricht updateDelaunayAndVoronoi()).
-static func from_board(board: BoardState, bounds: Rect2, min_edge := 5.0, with_visible_neighbors := true) -> Voronoi:
-	return build(Delaunay.build(board.all_points()), bounds, min_edge, board.points.size(), with_visible_neighbors)
+static func from_board(board: BoardState, bounds: Rect2, min_edge := 5.0, with_visible_neighbors := true, previous: Voronoi = null, changed_indices := PackedInt32Array()) -> Voronoi:
+	return build(Delaunay.build(board.all_points()), bounds, min_edge, board.points.size(), with_visible_neighbors, previous, changed_indices)
 
 
 ## Voronoi nur aus den echten Punkten (entspricht d3.Delaunay.from(points)).
 ## Die sichtbaren Nachbarn werden hier nicht gebraucht.
-static func from_points(pts: PackedVector2Array, bounds: Rect2) -> Voronoi:
-	return build(Delaunay.build(pts), bounds, 5.0, pts.size(), false)
+static func from_points(pts: PackedVector2Array, bounds: Rect2, previous: Voronoi = null, changed_indices := PackedInt32Array()) -> Voronoi:
+	return build(Delaunay.build(pts), bounds, 5.0, pts.size(), false, previous, changed_indices)
 
 
 func delaunay() -> Delaunay:
@@ -89,7 +103,6 @@ func min_max_area() -> Vector2:
 
 
 ## Laenge der gemeinsamen sichtbaren Kante zweier Zellen.
-##
 ## Die JS-Version schneidet beide Zellpolygone und nimmt den Umfang des
 ## Ergebnisses. Dieser Schnitt ist eine Strecke, sein Umfang also genau
 ## das Doppelte der Kantenlaenge (nachgeprueft mit dem Original-Algorithmus).
@@ -155,15 +168,38 @@ func edge_neighbors(index: int) -> PackedInt32Array:
 	return out
 
 
-func _build_cells() -> void:
-	cells = []
-	areas = PackedFloat32Array()
-	areas.resize(real_count)
+func _build_cells(previous: Voronoi = null, affected := {}) -> void:
+	if previous != null and previous.cells.size() == real_count:
+		cells = previous.cells.duplicate()
+		areas = previous.areas.duplicate()
+	else:
+		cells = []
+		areas = PackedFloat32Array()
+		areas.resize(real_count)
+	_circumcenters.resize(_delaunay.triangles.size() / 3)
+	var required_triangles := {}
+	if previous != null:
+		for index in affected:
+			for triangle in _delaunay.triangles_around(index):
+				required_triangles[triangle] = true
+	for triangle_index in range(_circumcenters.size()):
+		if previous != null and not required_triangles.has(triangle_index):
+			continue
+		var base := triangle_index * 3
+		_circumcenters[triangle_index] = BoardGeometry.circumcenter(
+			points[_delaunay.triangles[base]],
+			points[_delaunay.triangles[base + 1]],
+			points[_delaunay.triangles[base + 2]])
 	for i in range(real_count):
+		if previous != null and not affected.has(i):
+			continue
 		if _delaunay.neighbors(i).is_empty():
 			# Deckungsgleicher Punkt (doppelte Dummy-Ecken der gespiegelten
 			# Erzeugung): d3-delaunay liefert dafuer keine Zelle.
-			cells.append(PackedVector2Array())
+			if previous == null:
+				cells.append(PackedVector2Array())
+			else:
+				cells[i] = PackedVector2Array()
 			areas[i] = 0.0
 			continue
 		var poly := _fan_polygon(i)
@@ -171,8 +207,39 @@ func _build_cells() -> void:
 			# Randzelle oder entartete Umkreiskonstruktion: exakt schneiden
 			poly = _halfplane_polygon(i)
 		poly = BoardGeometry.simplify_polygon(poly)
-		cells.append(poly)
+		if previous == null:
+			cells.append(poly)
+		else:
+			cells[i] = poly
 		areas[i] = BoardGeometry.polygon_area(poly)
+
+
+## Nur die bewegten Zellen und ihre direkten Delaunay-Nachbarn muessen neu
+## geschnitten werden. Das genuegt, weil sich die Zellform einer Zelle nur aus
+## den Umkreismittelpunkten der Dreiecke ergibt, die sie mit ihren Nachbarn
+## bildet: bewegt sich ein Punkt, aendern sich nur die Faecheradien dieser
+## lokalen Dreiecke. Beide Triangulationen (alt und neu) werden betrachtet,
+## damit auch Zellen aktualisiert werden, deren Nachbarschaft gerade wechselt.
+func _affected_indices(previous: Voronoi, changed_indices: PackedInt32Array) -> Dictionary:
+	var affected := {}
+	for index in changed_indices:
+		if index < 0 or index >= real_count:
+			continue
+		affected[index] = true
+		for neighbor in _delaunay.neighbors(index):
+			affected[neighbor] = true
+		if previous == null:
+			continue
+		for neighbor in previous.delaunay().neighbors(index):
+			affected[neighbor] = true
+	if previous == null or changed_indices.is_empty() \
+		or changed_indices.size() * 4 > real_count:
+		# Kein Vorgaenger oder sehr viele bewegte Punkte: die lokale Annahme
+		# waere unsicher, deshalb wird einmal vollstaendig gerechnet.
+		affected.clear()
+		for index in range(real_count):
+			affected[index] = true
+	return affected
 
 
 ## Zellpolygon eines inneren Punktes: die Umkreismittelpunkte der
@@ -184,11 +251,7 @@ func _fan_polygon(index: int) -> PackedVector2Array:
 	var out := PackedVector2Array()
 	out.resize(fan.size())
 	for k in range(fan.size()):
-		var base := fan[k] * 3
-		out[k] = BoardGeometry.circumcenter(
-			points[_delaunay.triangles[base]],
-			points[_delaunay.triangles[base + 1]],
-			points[_delaunay.triangles[base + 2]])
+		out[k] = _circumcenters[fan[k]]
 	return _clip_to_rect_if_needed(out)
 
 
@@ -256,13 +319,22 @@ func _measure_common_edge_length(a: int, b: int) -> float:
 	return 2.0 * total
 
 
-func _build_visible_neighbors(min_edge: float) -> void:
-	visible_neighbors = []
-	for i in range(real_count):
+func _build_visible_neighbors(min_edge: float, previous: Voronoi = null, affected := {}) -> void:
+	if previous != null and previous.visible_neighbors.size() == real_count:
+		visible_neighbors = previous.visible_neighbors.duplicate()
+	else:
+		visible_neighbors = []
+		for i in range(real_count):
+			visible_neighbors.append(PackedInt32Array())
+		for i in range(real_count):
+			affected[i] = true
+	for i in affected:
+		if i < 0 or i >= real_count:
+			continue
 		var out := PackedInt32Array()
 		for j in _delaunay.neighbors(i):
 			if j >= real_count:
 				continue
 			if visible_common_edge_length(i, j) >= min_edge:
 				out.append(j)
-		visible_neighbors.append(out)
+		visible_neighbors[i] = out

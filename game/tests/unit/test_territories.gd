@@ -39,10 +39,12 @@ func test_generate_points_is_reproducible() -> void:
 
 func test_dummy_points_sit_outside_the_board() -> void:
 	var dummies := Territories.generate_dummy_points()
-	assert_eq(dummies.size(), 68)
+	assert_eq(dummies.size(), 72)
 	for p in dummies:
 		var outside := p.x < 0.0 or p.x > GameConfig.BOARD_WIDTH or p.y < 0.0 or p.y > GameConfig.BOARD_HEIGHT
 		assert_true(outside, "Dummy-Punkt %s liegt ausserhalb" % p)
+	assert_eq(Territories.generate_dummy_points()[0].y, -GameConfig.DUMMY_MARGIN,
+		"Dummy-Rand liegt ausserhalb des Spielpunkt-Rands")
 
 
 func test_new_game_creates_two_colored_seeds() -> void:
@@ -61,6 +63,11 @@ func test_new_game_creates_two_colored_seeds() -> void:
 	assert_gt(count_p1, 0, "Spieler 1 besitzt mindestens eine Zelle")
 	assert_gt(count_p2, 0, "Spieler 2 besitzt mindestens eine Zelle")
 	assert_eq(board.active_color, GameConfig.COLOR_PLAYER1, "Spieler 1 beginnt")
+	for i in range(board.points.size()):
+		assert_between(board.points[i].x, GameConfig.POINT_MARGIN - 0.01,
+			GameConfig.BOARD_WIDTH - GameConfig.POINT_MARGIN + 0.01)
+		assert_between(board.points[i].y, GameConfig.POINT_MARGIN - 0.01,
+			GameConfig.BOARD_HEIGHT - GameConfig.POINT_MARGIN + 0.01)
 
 
 func test_new_game_is_reproducible() -> void:
@@ -86,6 +93,48 @@ func test_new_game_balances_color_areas() -> void:
 	var area2 := Territories.total_area_for_color(board, main, GameConfig.COLOR_PLAYER2)
 	var tolerance := GameConfig.BALANCE_TOLERANCE_RATIO * GameConfig.BOARD_AREA
 	assert_lt(absf(area1 - area2), tolerance, "Flaechen sind innerhalb der Toleranz")
+
+
+func test_small_point_move_does_not_flip_the_whole_board() -> void:
+	var config := _config(20)
+	var board := BoardState.new()
+	board.dummy_points = Territories.generate_dummy_points()
+	Territories.init_on_new_game(board, config, DeterministicRng.new(20250116))
+	var before := board.color_ids()
+	var moved := board.points
+	moved[0] += Vector2(1.0, 0.0)
+	board.points = moved
+	var main := Voronoi.from_board(board,
+		Rect2(0.0, 0.0, GameConfig.BOARD_WIDTH, GameConfig.BOARD_HEIGHT))
+	var steps := Territories.color_change_steps(CellGeometry.from_voronoi(main), before,
+		GameConfig.COLOR_PROPAGATION_ITERATIONS)
+	var changed := {}
+	for step in steps:
+		changed[int(step["cell"])] = true
+	assert_lt(changed.size(), board.points.size() - 1,
+		"eine kleine Bewegung darf keine globale Farb-Kaskade ausloesen")
+
+
+func test_color_count_balancing_handles_non_mirrored_setup() -> void:
+	var board := BoardState.new()
+	board.points = PackedVector2Array([
+		Vector2(120.0, 120.0), Vector2(300.0, 180.0), Vector2(520.0, 140.0),
+		Vector2(700.0, 300.0), Vector2(420.0, 470.0)])
+	board.reset_colors()
+	for i in range(4):
+		board.set_cell_color(i, GameConfig.COLOR_PLAYER1)
+	board.set_cell_color(4, GameConfig.COLOR_PLAYER2)
+	var voronoi := Voronoi.from_points(board.points,
+		Rect2(0.0, 0.0, GameConfig.BOARD_WIDTH, GameConfig.BOARD_HEIGHT))
+	Territories.balance_color_counts(board, voronoi)
+
+	var count1 := 0
+	var count2 := 0
+	for color in board.cell_colors:
+		count1 += 1 if color == GameConfig.COLOR_PLAYER1 else 0
+		count2 += 1 if color == GameConfig.COLOR_PLAYER2 else 0
+	assert_eq(count1, 3, "Spieler 1 bekommt bei ungerader Zellzahl die mittlere Anzahl")
+	assert_eq(count2, 2, "Spieler 2 bekommt bei ungerader Zellzahl die mittlere Anzahl")
 
 
 func test_colors_spread_over_visible_neighbours() -> void:
@@ -147,6 +196,23 @@ func test_largest_neighbor_by_color() -> void:
 		assert_gt(found["max_area"], 0.0)
 	else:
 		assert_eq(found["cell_id"], -1)
+
+
+func test_relative_influence_sums_larger_support_and_enemy_pressure() -> void:
+	var geometry := CellGeometry.new()
+	geometry.areas = PackedFloat32Array([100.0, 125.0, 200.0, 80.0])
+	geometry.neighbors = [PackedInt32Array([1, 2, 3]), PackedInt32Array(),
+		PackedInt32Array(), PackedInt32Array()]
+	geometry.edge_lengths = [{1: 2.0, 2: 3.0, 3: 4.0}, {}, {}, {}]
+	var ids := PackedByteArray([1, 1, 2, 2])
+
+	assert_almost_eq(Territories.relative_neighbor_raw_value(geometry, ids, 0, 1), 50.0, 0.001)
+	assert_almost_eq(Territories.relative_neighbor_raw_value(geometry, ids, 0, 2), -300.0, 0.001)
+	assert_almost_eq(Territories.relative_neighbor_value(geometry, ids, 0, 1), 16.6667, 0.001)
+	assert_almost_eq(Territories.relative_neighbor_value(geometry, ids, 0, 2), -100.0, 0.001)
+	assert_almost_eq(Territories.relative_neighbor_value(geometry, ids, 0, 3), 0.0, 0.001,
+		"kleinere Nachbarn liefern keinen Einfluss")
+	assert_almost_eq(Territories.relative_neighbor_total(geometry, ids, 0), -83.3333, 0.001)
 
 
 func test_turns_drag_permission_follows_active_color() -> void:

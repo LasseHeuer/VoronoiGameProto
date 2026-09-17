@@ -41,8 +41,8 @@ func test_defaults_match_the_reference_values() -> void:
 	assert_eq(config.cell_count, 20)
 	assert_almost_eq(config.push_factor, 0.2, 0.0001)
 	assert_almost_eq(config.push_radius, 40.0, 0.0001)
-	assert_almost_eq(config.border_margin, 25.0, 0.0001)
-	assert_almost_eq(config.weight_influence, 0.95, 0.0001)
+	assert_almost_eq(config.border_margin, 50.0, 0.0001)
+	assert_almost_eq(config.weight_influence, 1.0, 0.0001)
 	assert_true(config.alternating_moves)
 	assert_true(config.dummy_points)
 
@@ -146,9 +146,12 @@ func test_settings_panel_builds_rows_and_writes_back_to_config() -> void:
 		GameConfig.SETTING_GROUPS.size() + 1 + GameConfig.SLIDERS.size() + GameConfig.TOGGLES.size())
 	assert_eq(panel._controls.size(), 1 + GameConfig.SLIDERS.size() + GameConfig.TOGGLES.size())
 
+	var expected_changes := 0
 	for entry in GameConfig.SLIDERS:
 		var key: String = entry["key"]
 		var slider: HSlider = panel._controls[key]
+		if not is_equal_approx(float(config.get(key)), float(entry["max"])):
+			expected_changes += 1
 		assert_almost_eq(slider.min_value, float(entry["min"]), 0.0001)
 		assert_almost_eq(slider.max_value, float(entry["max"]), 0.0001)
 		slider.value = slider.max_value
@@ -157,7 +160,7 @@ func test_settings_panel_builds_rows_and_writes_back_to_config() -> void:
 			assert_eq(int(stored), int(entry["max"]), key)
 		else:
 			assert_almost_eq(float(stored), float(entry["max"]), 0.0001, key)
-	assert_eq(changed.size(), GameConfig.SLIDERS.size(), "jede Aenderung meldet sich")
+	assert_eq(changed.size(), expected_changes, "jede tatsaechliche Aenderung meldet sich")
 
 
 func test_settings_panel_toggles_and_restart_button() -> void:
