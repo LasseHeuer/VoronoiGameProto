@@ -29,6 +29,7 @@ const VALUE_WIDTH := 44.0
 var _config: GameConfig
 ## Bedienelement je Schema-Key.
 var _controls := {}
+var _rows_by_key := {}
 
 
 func _ready() -> void:
@@ -52,6 +53,7 @@ func setup(config: GameConfig) -> void:
 				_build_slider(entry)
 			else:
 				_build_toggle(entry)
+	_update_conditional_visibility()
 
 
 ## Alle Schema-Eintraege einer Gruppe, Slider vor Schaltern.
@@ -107,13 +109,26 @@ func _build_slider(entry: Dictionary) -> void:
 func _build_toggle(entry: Dictionary) -> void:
 	var key: String = entry["key"]
 	var row := _make_row(entry["label"])
+	_rows_by_key[key] = row
 	var check := CheckBox.new()
 	check.button_pressed = bool(_config.get(key))
 	check.toggled.connect(func(pressed: bool):
 		_config.set(key, pressed)
+		if key == "show_flow" and not pressed:
+			_config.show_all_flows = false
+			var all_flows: CheckBox = _controls.get("show_all_flows")
+			if all_flows != null:
+				all_flows.button_pressed = false
+			_update_conditional_visibility()
 		value_changed.emit(key, pressed))
 	row.add_child(check)
 	_controls[key] = check
+
+
+func _update_conditional_visibility() -> void:
+	if not _rows_by_key.has("show_all_flows") or _config == null:
+		return
+	_rows_by_key["show_all_flows"].visible = bool(_config.show_flow)
 
 
 func _make_row(label_text: String) -> HBoxContainer:

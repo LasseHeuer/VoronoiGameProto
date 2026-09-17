@@ -179,36 +179,28 @@ func hover_note(cell: int, plain: Voronoi) -> void:
 	schedule_note(cell, cell_frequency(plain, cell), t, GameConfig.HOVER_VOLUME, true)
 
 
-## Drag-Dauertoene: BFS-Tiefe 2, Startzelle mit voller Lautstaerke,
-## groesster Nachbar mit halber.
+## Drag-Dauertoene: gezogene Zelle mit voller Lautstaerke und die groesste
+## Zelle derselben Spielerfarbe mit halber Lautstaerke.
 func update_drag_tones(plain: Voronoi, start_cell: int) -> void:
 	if start_cell < 0 or start_cell >= board.points.size():
 		return
-	var visited := {start_cell: true}
-	var queue: Array = [[start_cell, 1]]
+	var player_color := board.cell_color(start_cell)
 	var largest_cell := start_cell
-	var largest_area := 0.0
-	var network := plain.delaunay()
-
-	while not queue.is_empty():
-		var node: Array = queue.pop_front()
-		var index: int = node[0]
-		var depth: int = node[1]
+	var largest_area := plain.area(start_cell)
+	for index in range(plain.real_count):
+		if board.cell_color(index) != player_color:
+			continue
 		var area := plain.area(index)
 		if area > largest_area:
 			largest_area = area
 			largest_cell = index
-		if depth < GameConfig.DRAG_BFS_DEPTH:
-			for nb in network.neighbors(index):
-				if not visited.has(nb):
-					visited[nb] = true
-					queue.append([nb, depth + 1])
 
 	_apply_drag_tone(start_cell, GameConfig.DRAG_START_VOLUME, plain)
-	_apply_drag_tone(largest_cell, GameConfig.DRAG_NEIGHBOR_VOLUME, plain)
+	if largest_cell != start_cell:
+		_apply_drag_tone(largest_cell, GameConfig.DRAG_NEIGHBOR_VOLUME, plain)
 
 	for cell in _drag_tones.keys().duplicate():
-		if not visited.has(cell):
+		if cell != start_cell and cell != largest_cell:
 			stop_drag_tone(cell)
 
 

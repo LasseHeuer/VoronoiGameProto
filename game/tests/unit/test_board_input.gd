@@ -20,7 +20,6 @@ func _make_input(alternating: bool) -> BoardInput:
 	board.active_color = GameConfig.COLOR_PLAYER1
 	var input := BoardInput.new()
 	input.setup(board, config)
-	input.update_transform(Vector2(GameConfig.BOARD_WIDTH, GameConfig.BOARD_HEIGHT))
 	add_child_autofree(input)
 	return input
 
@@ -45,7 +44,7 @@ func test_release_after_drag_starts_cascade_from_dragged_cell() -> void:
 
 	input.consume_pending_spread()
 	assert_signal_emitted_with_parameters(input, "notes_spread_requested", [0, POINT_A])
-	assert_eq(board.dragged_index, -1, "Drag-Linien sind zurueckgesetzt")
+	assert_eq(board.dragged_index, -1, "Drag-Daten sind zurueckgesetzt")
 
 
 func test_release_uses_last_cursor_position() -> void:
@@ -210,7 +209,6 @@ func _make_three_cell_board() -> Array:
 	board.active_color = GameConfig.COLOR_PLAYER1
 	var input := BoardInput.new()
 	input.setup(board, config)
-	input.update_transform(Vector2(GameConfig.BOARD_WIDTH, GameConfig.BOARD_HEIGHT))
 	add_child_autofree(input)
 	return [input, board]
 

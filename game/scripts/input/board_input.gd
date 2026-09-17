@@ -4,7 +4,7 @@ extends Node
 ## Maus -> Drag/Klick-Intents. Uebersetzt Fensterkoordinaten in
 ## Brettkoordinaten und fuehrt die Drag-Zustandsmaschine
 ## (Hit-Test, Zug-Erlaubnis, Slow-Faktor, automatischer Farbwechsel,
-## Drag-Linien-Daten und Uebernahme-Warnung).
+## Drag-Uebernahme-Warnung).
 ##
 ## Klang und Geometrie werden nicht selbst berechnet: das Modul meldet
 ## Intents per Signal und bekommt die Geometrie einmal pro Tick hereingegeben.
@@ -52,6 +52,10 @@ func is_dragging() -> bool:
 
 func dragged_index() -> int:
 	return _dragged_index
+
+
+func dragged_player_color() -> String:
+	return _drag_player_color
 
 
 func update_transform(viewport_size: Vector2) -> void:
@@ -330,8 +334,8 @@ func _takeover_warning(main: Voronoi) -> float:
 	return clampf((GameConfig.BLINK_WARN_VALUE - total) / GameConfig.BLINK_WARN_VALUE, 0.0, 1.0)
 
 
-## Linien zum groessten gleichen bzw. gegnerischen Nachbarn und die Warnung
-## vor der Uebernahme.
+## Groesste gleich- bzw. gegnerisch gefaerbte Nachbarn fuer die Warnung vor
+## der Uebernahme.
 func update_drag_visuals(main: Voronoi) -> void:
 	if not _dragging or _dragged_index < 0 or main == null:
 		return

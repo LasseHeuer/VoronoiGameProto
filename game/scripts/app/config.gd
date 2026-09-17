@@ -14,14 +14,16 @@ const BOARD_AREA := BOARD_WIDTH * BOARD_HEIGHT
 
 const COLOR_PLAYER1 := "#FF532E"
 const COLOR_PLAYER2 := "#438FFF"
+## Hintergrundfarbe aus game/assets/spielerfarben.svg (#AEA2B9).
+const BACKGROUND_COLOR := "#AEA2B9"
 
 ## Farbstufen der Spieler (aus game/assets/spielerfarben.svg). Sie sind die
 ## drei Landmarken fuer den fliessenden Groessenverlauf jeder Spielerfarbe.
 const PLAYER1_STEP_COLORS := [COLOR_PLAYER1, "#FF9945", "#FFCF6A"]
 const PLAYER2_STEP_COLORS := [COLOR_PLAYER2, "#37BFFF", "#37E6FF"]
 
-## Zelle ohne Spielerfarbe (vor der Farbzuweisung): neutral wie das Brett.
-const CELL_EMPTY_COLOR := "#b2b2b2"
+## Zelle ohne Spielerfarbe (vor der Farbzuweisung): dunkles Neutralgrau.
+const CELL_EMPTY_COLOR := "#4A505A"
 
 # ------------------------------------------------- feste Spielkonstanten ---
 const DRAG_RADIUS := 10.0
@@ -48,15 +50,14 @@ const SAME_COLOR_FRAME_WIDTH := 1.5
 ## durchgehende Kontur um das ganze Territorium laeuft und um ihre halbe
 ## Breite nach innen versetzt ist.
 const FRONT_FRAME_WIDTH := 5.0
-const POINT_RADIUS := 5.0
 ## Punkt der Zelle unter dem Mauszeiger. Die Zelle selbst bekommt beim Hover
 ## eine weisse Umrandung in der Dicke der normalen Zellgrenze.
 const POINT_HOVER_COLOR := "#FFFFFF"
 
-## Kurz vor der Uebernahme blinkt die gezogene Zelle. Die Verbindung zur
-## groessten gegnerischen Nachbarzelle bleibt als Orientierung sichtbar.
+## Kurz vor der Uebernahme blinken gefaehrdete Zellen.
 const BLINK_COLOR := "#FFFFFF"
 const BLINK_ALPHA := 0.65
+const BLINK_VALUE_THRESHOLD := 10.0
 ## Unter diesem summierten Einflusswert beginnt das Blinken.
 const BLINK_WARN_VALUE := 10.0
 ## Dauer einer Blinkphase (Sekunden) bei kleinster bzw. groesster Chance.
@@ -77,7 +78,6 @@ const NOTE_DURATION := 2.0
 const NOTE_DISTANCE_FACTOR := 0.003
 const NOTE_TAIL := 0.1
 
-const DRAG_BFS_DEPTH := 2
 const DRAG_START_VOLUME := 1.0
 const DRAG_NEIGHBOR_VOLUME := 0.5
 ## Hover-Toene: sehr leise und nur mit Mindestabstand (Windspiel).
@@ -131,6 +131,10 @@ const FALLBACK_FREQ := 220.0
 @export var dummy_points: bool = true
 ## Flaechenzahlen in den Zellen anzeigen (beim Start aus).
 @export var show_cell_numbers: bool = false
+## Vererbungswege der aktuellen oder aller Zellen anzeigen.
+@export var show_flow: bool = false
+## Vererbungswege fuer jede echte Zelle anzeigen.
+@export var show_all_flows: bool = false
 ## Gegenseitige Einflusswerte aller Zellen anzeigen.
 @export var show_all_cell_numbers: bool = false
 ## Abstand zwischen zwei Farbwechseln, wenn Zellen verloren gehen (ms).
@@ -143,6 +147,8 @@ const FALLBACK_FREQ := 220.0
 @export var cell_gap: float = 0.0
 ## Gemeinsame Grenzlinien unterhalb dieser Laenge erhalten kein Zahlenlabel.
 @export var boundary_label_threshold: float = 10.0
+## Radius der Zellpunkte in Brettpixeln.
+@export var point_radius: float = 8.0
 
 @export var random_seed: int = 0
 
@@ -173,12 +179,15 @@ const SLIDERS := [
 	{"key": "corner_radius", "label": "Zell-Abrundung", "min": 0.0, "max": 150.0, "step": 0.5, "group": "Darstellung"},
 	{"key": "cell_gap", "label": "Zellabstand", "min": 0.0, "max": 4.0, "step": 0.1, "group": "Darstellung"},
 	{"key": "boundary_label_threshold", "label": "Mindest-Grenzlinie", "min": 0.0, "max": 100.0, "step": 1.0, "group": "Darstellung"},
+	{"key": "point_radius", "label": "Punktgroesse", "min": 4.0, "max": 20.0, "step": 1.0, "group": "Darstellung"},
 ]
 
 const TOGGLES := [
 	{"key": "alternating_moves", "label": "Wechselnde Zuege", "group": "Spiel"},
 	{"key": "dummy_points", "label": "DummyPoints", "group": "Spiel"},
 	{"key": "show_cell_numbers", "label": "Zahlen anzeigen", "group": "Darstellung"},
+	{"key": "show_flow", "label": "Flow anzeigen", "group": "Darstellung"},
+	{"key": "show_all_flows", "label": "Flows fuer alle Zellen", "group": "Darstellung"},
 	{"key": "show_all_cell_numbers", "label": "Zahlen fuer alle Zellen", "group": "Darstellung"},
 ]
 
@@ -209,9 +218,12 @@ const DEFAULTS := {
 	"loss_rescue_ms": 1000.0,
 	"corner_radius": 8.0,
 	"cell_gap": 0.0,
+	"point_radius": 8.0,
 	"alternating_moves": true,
 	"dummy_points": true,
 	"show_cell_numbers": false,
+	"show_flow": false,
+	"show_all_flows": false,
 	"show_all_cell_numbers": false,
 	"boundary_label_threshold": 10.0,
 }

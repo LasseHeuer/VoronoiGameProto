@@ -124,6 +124,7 @@ func _physics_process(_delta: float) -> void:
 		audio.update_drag_tones(voronoi_plain, board_input.dragged_index())
 
 	# 4) Abstandskraefte (pushPoints + updatePointPositions)
+	var points_before_relaxation := board.points.duplicate()
 	var weights := Relaxation.compute_cell_weights(board, voronoi_plain)
 	if board_input.dragged_index() >= 0:
 		weights[board_input.dragged_index()] = voronoi_plain.area(board_input.dragged_index())
@@ -137,6 +138,14 @@ func _physics_process(_delta: float) -> void:
 
 	# 6) Rand-Clamping
 	Relaxation.clamp_to_canvas(board, config)
+	if board_input.is_dragging():
+		var movement_cost := 0.0
+		var dragged := board_input.dragged_index()
+		for i in range(board.points.size()):
+			if i == dragged or i >= points_before_relaxation.size():
+				continue
+			movement_cost += points_before_relaxation[i].distance_to(board.points[i])
+		board.spend_stamina(board_input.dragged_player_color(), movement_cost, config)
 
 	# 7) Farbausbreitung. Waehrend eines Drags laeuft sie im Original
 	#    zweimal pro Frame (mousemove und animate). Die Wechsel werden
@@ -162,7 +171,7 @@ func _physics_process(_delta: float) -> void:
 	#    (spreadNotes im mouseup des Originals).
 	board_input.consume_pending_spread()
 
-	# 8) Drag-Linien-Daten
+	# 8) Drag-Uebernahme-Warnung
 	board_input.update_drag_visuals(voronoi_main)
 
 	board_view.voronoi = voronoi_main

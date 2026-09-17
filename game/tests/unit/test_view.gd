@@ -5,23 +5,23 @@ extends GutTest
 
 func test_transform_letterboxes_wide_window() -> void:
 	var transform := BoardTransform.for_viewport(Vector2(1800.0, 600.0))
-	assert_almost_eq(transform.scale, 1.0, 0.0001)
-	assert_almost_eq(transform.offset.x, 450.0, 0.0001)
-	assert_almost_eq(transform.offset.y, 0.0, 0.0001)
+	assert_almost_eq(transform.scale, 0.8, 0.0001)
+	assert_almost_eq(transform.offset.x, 540.0, 0.0001)
+	assert_almost_eq(transform.offset.y, 50.0, 0.0001)
 
 
 func test_transform_letterboxes_tall_window() -> void:
 	var transform := BoardTransform.for_viewport(Vector2(900.0, 1200.0))
-	assert_almost_eq(transform.scale, 1.0, 0.0001)
-	assert_almost_eq(transform.offset.x, 0.0, 0.0001)
-	assert_almost_eq(transform.offset.y, 300.0, 0.0001)
+	assert_almost_eq(transform.scale, 800.0 / 900.0, 0.0001)
+	assert_almost_eq(transform.offset.x, 50.0, 0.0001)
+	assert_almost_eq(transform.offset.y, 323.3333, 0.0001)
 
 
 func test_transform_scales_small_window() -> void:
 	var transform := BoardTransform.for_viewport(Vector2(500.0, 350.0))
-	assert_almost_eq(transform.scale, 500.0 / 900.0, 0.0001)
-	assert_almost_eq(transform.offset.x, 0.0, 0.0001)
-	assert_almost_eq(transform.offset.y, (350.0 - 600.0 * transform.scale) * 0.5, 0.0001)
+	assert_almost_eq(transform.scale, 230.0 / 600.0, 0.0001)
+	assert_almost_eq(transform.offset.x, 77.5, 0.0001)
+	assert_almost_eq(transform.offset.y, 50.0, 0.0001)
 
 
 func test_transform_round_trip() -> void:
@@ -198,6 +198,7 @@ func test_cell_fill_colors_cover_every_cell() -> void:
 func test_drawing_a_full_frame_runs_without_errors() -> void:
 	var config := GameConfig.new()
 	config.corner_radius = 14.0
+	config.show_flow = true
 	var board := BoardState.new()
 	board.points = PackedVector2Array([
 		Vector2(200.0, 300.0), Vector2(450.0, 200.0),
@@ -222,6 +223,9 @@ func test_drawing_a_full_frame_runs_without_errors() -> void:
 	renderer.set_board_state(board, config, voronoi)
 	renderer.highlight_cells = {0: 0.5, 3: 1.0}
 
+	renderer.queue_redraw()
+	await wait_process_frames(3)
+	config.show_all_flows = true
 	renderer.queue_redraw()
 	await wait_process_frames(3)
 

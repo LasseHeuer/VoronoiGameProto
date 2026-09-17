@@ -43,6 +43,7 @@ func test_defaults_match_the_reference_values() -> void:
 	assert_almost_eq(config.push_radius, 40.0, 0.0001)
 	assert_almost_eq(config.border_margin, 50.0, 0.0001)
 	assert_almost_eq(config.weight_influence, 1.0, 0.0001)
+	assert_almost_eq(config.point_radius, 8.0, 0.0001)
 	assert_true(config.alternating_moves)
 	assert_true(config.dummy_points)
 

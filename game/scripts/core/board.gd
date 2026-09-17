@@ -28,7 +28,7 @@ var game_over := false
 var winner_color := ""
 var final_move_color := ""
 
-## Visualisierungsdaten fuer Zeiger und Drag-Linien (von
+## Visualisierungsdaten fuer Zeiger und die Drag-Uebernahme-Warnung (von
 ## input/board_input.gd geschrieben, von view/board_renderer.gd gelesen).
 var hovered_index := -1
 var dragged_index := -1

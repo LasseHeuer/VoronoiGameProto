@@ -235,7 +235,7 @@ func test_drag_tones_start_with_two_voices() -> void:
 	var board: BoardState = setup[1]
 	var plain: Voronoi = setup[3]
 	synth.update_drag_tones(plain, 0)
-	# Startzelle und groesster Nachbar erhalten je einen Dauerton; ist die
+	# Startzelle und groesste Spielerzelle erhalten je einen Dauerton; ist die
 	# Startzelle selbst die groesste, bleibt es bei einer Stimme.
 	assert_between(synth._drag_tones.size(), 1, 2)
 	assert_ne(synth._drag_tones.get(0), null, "die Startzelle klingt")
@@ -255,23 +255,20 @@ func test_drag_tones_follow_the_start_cell() -> void:
 	assert_eq(synth._drag_tones.size(), 0, "Stimmen werden wieder freigegeben")
 
 
-func test_drag_tones_stop_when_the_start_cell_changes() -> void:
+func test_drag_tones_use_the_largest_cell_of_the_drag_player() -> void:
 	var setup := _make_synth()
 	var synth: Synth = setup[0]
 	var board: BoardState = setup[1]
 	var plain: Voronoi = setup[3]
-	if board.points.size() < 3:
-		return
-	var far := 0
+	var player_color := board.cell_color(0)
+	var largest := 0
 	for i in range(board.points.size()):
-		if not plain.delaunay().neighbors(0).has(i) and i != 0:
-			far = i
-			break
+		if board.cell_color(i) == player_color and plain.area(i) > plain.area(largest):
+			largest = i
 	synth.update_drag_tones(plain, 0)
 	assert_true(synth._drag_tones.has(0))
-	synth.update_drag_tones(plain, far)
-	assert_false(synth._drag_tones.has(0), "alte Stimme ausserhalb der BFS wird gestoppt")
-	assert_true(synth._drag_tones.has(far))
+	assert_true(synth._drag_tones.has(largest), "die groesste Zelle der Spielerfarbe klingt")
+	assert_lte(synth._drag_tones.size(), 2)
 
 
 func test_process_starts_due_notes_without_errors() -> void:

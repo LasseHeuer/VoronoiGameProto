@@ -5,9 +5,8 @@
 ; (900x600), `stretch/mode=canvas_items` skaliert es fliessend auf die
 ; Fenstergroesse und `stretch/aspect=keep` haelt dabei das Seitenverhaeltnis
 ; (ungenutzte Raender bleiben leer). Damit muss die Fenstergroesse nicht mehr
-; selbst nachgezogen werden. Bei genau 900x600 ist der eigene
-; view_transform neutral, Linien und Text werden also im
-; 1:1-Massstab gerastert.
+; selbst nachgezogen werden. Das Startfenster ist groesser, bleibt aber im
+; Seitenverhaeltnis 3:2.
 
 config_version=5
 
@@ -22,6 +21,8 @@ config/features=PackedStringArray("4.6", "GL Compatibility")
 
 window/size/viewport_width=900
 window/size/viewport_height=600
+window/size/window_width_override=1200
+window/size/window_height_override=800
 window/size/resizable=true
 window/stretch/mode="canvas_items"
 window/stretch/aspect="keep"

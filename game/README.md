@@ -28,8 +28,10 @@ godot --path game
 
 Kein Fensterzustand wird gespeichert. Das Brett (900x600 logisch) ist die
 Basisgroesse des Fensters; die Engine skaliert es fliessend auf die
-Fenstergroesse und haelt dabei das Seitenverhaeltnis (ungenutzte Raender
-bleiben leer, `project.godot`: `window/stretch/mode=canvas_items`,
+Fenstergroesse und haelt dabei das Seitenverhaeltnis. Die Spielflaeche hat
+dabei mindestens 50 px Abstand zu oben und den Seiten sowie 70 px nach
+unten fuer die Ausdauerbalken (`project.godot`:
+`window/stretch/mode=canvas_items`,
 `window/stretch/aspect=keep`). Alle Regler werden in `user://settings.cfg`
 gespeichert und beim Start geladen.
 
@@ -108,7 +110,7 @@ tests/unit/  GUT-Tests (test_geometry, test_delaunay, test_voronoi,
 7. Farbausbreitung (beim Dragging zweimal, wie im Original; Wechsel werden
    beim Verlust nacheinander angewendet)
 7b. Nach dem Loslassen: Tonkaskade ab der gezogenen Zelle
-8. Drag-Linien-Daten und Uebernahme-Warnung
+8. Drag-Uebernahme-Warnung
 
 `_process`: faellige Noten starten, Huellkurven fortschreiben, blinkende
 Uebernahme-Warnung aktualisieren, Zeichnen.
@@ -175,9 +177,8 @@ stimmen vollstaendig ueberein.
   restlichen Zellen Stufe 2 und die kleinere Haelfte Stufe 3. Die Aufteilung
   ist relativ zu den Zellen des jeweiligen Spielers; ein Spieler mit kleineren
   Zellen und Territorium wird also genauso abgestuft wie ein grosser. Die
-  Farben werden unveraendert verwendet: keine Mischung mit der Gegnerfarbe,
-  keine Helligkeits- oder Saettigungsaenderung. Das Original stufte
-  stattdessen ueber die Helligkeit ab (grosse Zellen dunkel).
+  Spielerfarben bleiben unveraendert; die Schwaeche einer Zelle wird nur durch
+  das Blinken angezeigt.
 - **Zellraender**: zwischen zwei gleichfarbigen Zellen liegt eine duenne
   graue Linie (1.5 px) mittig auf der Kante. Zur fremden Farbe und zum
   Brettrand laeuft eine dicke Linie (5 px) in der eigenen Teamfarbe. Sie wird
@@ -200,9 +201,13 @@ stimmen vollstaendig ueberein.
   Das Original hatte dafuer nur den Klick und das Ziehen.
 - **Zahlen anzeigen** ist ein neuer Schalter (Standard: aus). Er blendet die
   Flaechenzahlen in den Zellen ein; das Original zeigte sie immer.
-- **Uebernahme-Warnung** ist neu: Kurz vor einem Farbwechsel blinken die
-  groesste gegnerische Nachbarzelle und ihre Verbindungslinie. Je naeher der
-  gegnerische Flaechenanteil am Kipp-Punkt liegt, desto schneller blinkt sie.
+- **Flow anzeigen** zeigt fuer die aktuelle Hover- oder Drag-Zelle die
+  Vererbungswege von den groessten Spielerzellen samt Staerke an. Bei einer
+  gegnerischen Front wird auch der gegnerische Flow dargestellt. Mit **Flows
+  fuer alle Zellen** werden die Wege fuer alle echten Zellen eingeblendet.
+- **Uebernahme-Warnung** ist neu: Kurz vor einem Farbwechsel blinken
+  gefaehrdete Zellen. Je naeher der gegnerische Flaechenanteil am Kipp-Punkt
+  liegt, desto schneller blinkt die Warnung.
 - **Neustart** setzt Punkte, Zellen, Farben und Zugrecht zurueck. Im Original
   gab es keinen Neustart; die Zellzahl wirkte dort sofort, hier erst beim
   Neustart.
@@ -211,8 +216,9 @@ stimmen vollstaendig ueberein.
   `generateRegularPoints()`, `generateRandomPoints()`,
   `getMaxCommonEdgeLengthForColor()`.
 - **Dragtone Neighbor Factor** ist im Original wirkungslos (der Wert landet
-  nur in einer nie gelesenen Variable); die Nachbarstimme ist wie dort fest
-  0.5. Der Regler bleibt erhalten, hat aber keinen hoerbaren Effekt.
+  nur in einer nie gelesenen Variable); die zweite Stimme fuer die groesste
+  Zelle der Spielerfarbe ist wie dort fest 0.5. Der Regler bleibt erhalten,
+  hat aber keinen hoerbaren Effekt.
 - **Audio**: der globale Cutoff ist ein Lowpass auf dem Bus "Synth" statt
   eines Filters pro Note (gleiche Wirkung, da der Wert global ist). Der
   Limiter ist ein `AudioEffectCompressor` mit den Originalwerten
