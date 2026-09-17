@@ -26,6 +26,7 @@ var transform := BoardTransform.new()
 var _dragging := false
 var _dragged_index := -1
 var _drag_start := Vector2.ZERO
+var _drag_player_color := ""
 var _successful_drag := false
 var _color_switched_automatically := false
 var _cursor := Vector2.ZERO
@@ -84,6 +85,8 @@ func _on_press(screen_pos: Vector2) -> void:
 		_successful_drag = false
 		_color_switched_automatically = false
 		_drag_start = board.points[hit]
+		_drag_player_color = board.active_color if config.alternating_moves \
+			else board.cell_color(hit)
 		# Der bewegte Punkt bleibt waehrend des Drags als aktive Hover-Zelle
 		# sichtbar, auch wenn seit dem Druecken kein neues Mausereignis kommt.
 		board.hovered_index = hit
@@ -102,6 +105,8 @@ func _on_release() -> void:
 		apply_drag_motion()
 	var released_index := _dragged_index
 	var released_pos := _cursor
+	var completed_move := _successful_drag
+	var completed_color := _drag_player_color
 	var lost_without_rescue := _loss_active \
 		and board.cell_color(_dragged_index) != board.active_color
 	if lost_without_rescue:
@@ -112,11 +117,15 @@ func _on_release() -> void:
 	_dragging = false
 	_dragged_index = -1
 	if config != null and config.alternating_moves:
-		if _successful_drag and not _color_switched_automatically:
+		if _successful_drag and not _color_switched_automatically \
+			and board.final_move_color == "":
 			board.active_color = Turns.toggled_color(board.active_color)
 		_color_switched_automatically = false
+	if completed_move and not lost_without_rescue:
+		board.complete_move(completed_color, config)
 	drag_tones_stop_requested.emit(-1)
 	_successful_drag = false
+	_drag_player_color = ""
 	if board != null:
 		board.clear_drag_visuals()
 	if released_index >= 0:
@@ -220,8 +229,17 @@ func apply_drag_motion() -> void:
 		# Langsam an das Ziel herantasten statt springen.
 		var current := from.distance_to(_drag_start)
 		target = current + (target - current) * GameConfig.SLOW_FACTOR
+	var desired := _drag_start + direction * target
+	var requested_distance := from.distance_to(desired)
+	if config.alternating_moves:
+		var available := board.stamina_for_color(_drag_player_color)
+		if available <= 0.001:
+			drag_volume_requested.emit(_dragged_index)
+			return
+		if requested_distance > available:
+			desired = from + (desired - from).normalized() * available
 	var points := board.points
-	points[_dragged_index] = _drag_start + direction * target
+	points[_dragged_index] = desired
 	board.points = points
 
 	if not _successful_drag:
@@ -234,6 +252,12 @@ func apply_drag_motion() -> void:
 		var revert := board.points
 		revert[_dragged_index] = from
 		board.points = revert
+	else:
+		var accepted_distance := board.points[_dragged_index].distance_to(from)
+		board.spend_stamina(_drag_player_color, accepted_distance, config)
+		if accepted_distance > GameConfig.MOVE_THRESHOLD \
+			or (config.alternating_moves and board.stamina_for_color(_drag_player_color) <= 0.001):
+			_successful_drag = true
 
 	drag_volume_requested.emit(_dragged_index)
 

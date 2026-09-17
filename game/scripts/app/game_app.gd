@@ -43,6 +43,8 @@ var _was_dragging := false
 func _ready() -> void:
 	config = GameConfig.new()
 	SettingsStore.load_into(config)
+	config.cell_count = clampi(config.cell_count, 2, 16)
+	config.cell_gap = clampf(config.cell_gap, 0.0, 4.0)
 	board = BoardState.new()
 	board.dummy_points = Territories.generate_dummy_points(config.border_margin)
 	board.use_dummy_points = config.dummy_points
@@ -77,10 +79,12 @@ func restart() -> void:
 	_was_dragging = false
 	board.dummy_points = Territories.generate_dummy_points(config.border_margin)
 	board.use_dummy_points = config.dummy_points
+	board.reset_stamina(config)
 	Territories.init_on_new_game(board, config, rng)
 	voronoi_plain = Voronoi.from_points(board.points, BOARD_RECT)
 	voronoi_main = Voronoi.from_board(board, BOARD_RECT)
 	board_view.voronoi = voronoi_main
+	_update_game_result()
 	wake()
 
 
@@ -152,6 +156,7 @@ func _physics_process(_delta: float) -> void:
 		audio.pitch_up(board_input.dragged_index(), voronoi_plain)
 	elif rescue_state == -1:
 		audio.reset_pitch()
+	_update_game_result()
 
 	# 7b) Nach dem Loslassen breitet sich der Ton als Kaskade aus
 	#    (spreadNotes im mouseup des Originals).
@@ -214,6 +219,9 @@ func _on_setting_changed(key: String, value: Variant) -> void:
 			AudioSetup.apply_cutoff(config)
 		"dummy_points":
 			board.use_dummy_points = bool(value)
+		"stamina":
+			board.stamina_player1 = minf(board.stamina_player1, config.stamina)
+			board.stamina_player2 = minf(board.stamina_player2, config.stamina)
 
 
 func _on_notes_spread_requested(cell_index: int, from_pos: Vector2) -> void:
@@ -236,6 +244,17 @@ func _on_drag_tones_stop_requested(except_index: int) -> void:
 
 func _on_drag_tone_ramp_down_requested(cell_index: int) -> void:
 	audio.ramp_down_drag_tone(cell_index)
+
+
+func _update_game_result() -> void:
+	if not board.game_over or board.winner_color != "" or voronoi_main == null:
+		return
+	var area1 := Territories.total_area_for_color(board, voronoi_main, GameConfig.COLOR_PLAYER1)
+	var area2 := Territories.total_area_for_color(board, voronoi_main, GameConfig.COLOR_PLAYER2)
+	if is_equal_approx(area1, area2):
+		board.winner_color = ""
+	else:
+		board.winner_color = GameConfig.COLOR_PLAYER1 if area1 > area2 else GameConfig.COLOR_PLAYER2
 
 
 func _show_settings() -> void:

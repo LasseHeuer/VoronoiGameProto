@@ -87,8 +87,9 @@ static func init_on_new_game(board: BoardState, config: GameConfig, rng: Determi
 		push_warning("Farbterritorien nicht ausgeglichen nach %d Iterationen." % iteration_count)
 
 
-## Setzt die beiden Seed-Zellen (groesste Zelle + groesste nicht
-## benachbarte Zelle) und gleicht die Flaechen aus (initColorTerritories).
+## Setzt die beiden Seed-Zellen auf getrennten Brettseiten: Spieler 1 beginnt
+## links, Spieler 2 rechts. Innerhalb der Seite werden moeglichst grosse und
+## nicht benachbarte Zellen verwendet (initColorTerritories).
 ## Seed-Auswahl und Flaechen kommen aus dem Voronoi OHNE Dummy-Punkte,
 ## die Ausbreitung aus `main` (mit Dummy-Punkten) - wie im Original.
 static func init_color_territories(board: BoardState, config: GameConfig, main: Voronoi) -> void:
@@ -102,16 +103,31 @@ static func init_color_territories(board: BoardState, config: GameConfig, main: 
 		return
 
 	var order := _order_by_area_desc(areas)
-	var big1: int = order[0]
+	var left_order: Array = []
+	var right_order: Array = []
+	for candidate in order:
+		if plain.points[candidate].x <= GameConfig.BOARD_WIDTH * 0.5:
+			left_order.append(candidate)
+		else:
+			right_order.append(candidate)
+	var big1: int = left_order[0] if not left_order.is_empty() else order[0]
 	var neighbors_of_big1 := {}
 	for nb in plain.delaunay().neighbors(big1):
 		neighbors_of_big1[nb] = true
-	var big2: int = order[1]
-	for k in range(1, order.size()):
-		var candidate: int = order[k]
+	var big2 := -1
+	for candidate in right_order:
 		if not neighbors_of_big1.has(candidate):
 			big2 = candidate
 			break
+	if big2 < 0 and not right_order.is_empty():
+		big2 = right_order[0]
+	if big2 < 0:
+		for candidate in order:
+			if candidate != big1 and not neighbors_of_big1.has(candidate):
+				big2 = candidate
+				break
+	if big2 < 0:
+		big2 = order[1]
 
 	board.reset_colors()
 	board.set_cell_color(big1, GameConfig.COLOR_PLAYER1)

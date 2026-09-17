@@ -38,6 +38,7 @@ var _cache_fill_colors := PackedStringArray()
 var _cache_fill_scale := -1.0
 var _cache_fill_offset := Vector2.ZERO
 var _cache_fill_radius := -1.0
+var _cache_fill_gap := -1.0
 ## UV-Platzhalter fuer draw_primitive (3 Punkte je Dreieck).
 var _uvs3 := PackedVector2Array([Vector2.ZERO, Vector2.ZERO, Vector2.ZERO])
 
@@ -58,10 +59,14 @@ func _draw() -> void:
 	if board == null or config == null or voronoi == null:
 		return
 	_draw_cells()
-	_draw_hover_outline()
 	_draw_points()
 	_draw_drag_lines()
-	if config.show_cell_numbers:
+	_draw_stamina_bars()
+	if board.game_over:
+		_draw_game_result()
+	if config.show_all_cell_numbers:
+		_draw_all_cell_ratios()
+	elif config.show_cell_numbers:
 		_draw_cell_labels()
 
 
@@ -75,6 +80,56 @@ func _to_screen_polygon(poly: PackedVector2Array) -> PackedVector2Array:
 	for i in range(poly.size()):
 		out[i] = _to_screen(poly[i])
 	return out
+
+
+func _draw_stamina_bars() -> void:
+	if not config.alternating_moves:
+		return
+	var viewport_size := get_viewport_rect().size
+	var margin := 18.0
+	var gap := 20.0
+	var bar_width := minf(240.0, maxf(100.0, (viewport_size.x - margin * 2.0 - gap) * 0.5))
+	var bar_height := 20.0
+	var y := viewport_size.y - margin - bar_height
+	var max_stamina := maxf(config.stamina, 1.0)
+	var ratio1 := clampf(board.stamina_player1 / max_stamina, 0.0, 1.0)
+	var ratio2 := clampf(board.stamina_player2 / max_stamina, 0.0, 1.0)
+	var rect1 := Rect2(margin, y, bar_width, bar_height)
+	var rect2 := Rect2(viewport_size.x - margin - bar_width, y, bar_width, bar_height)
+	_draw_stamina_bar(rect1, ratio1, GameConfig.COLOR_PLAYER1)
+	_draw_stamina_bar(rect2, ratio2, GameConfig.COLOR_PLAYER2)
+
+
+func _draw_stamina_bar(rect: Rect2, ratio: float, color: String) -> void:
+	_draw_rounded_rect(rect, Color(color, 0.2), 4.0)
+	if ratio > 0.0:
+		_draw_rounded_rect(Rect2(rect.position, Vector2(rect.size.x * ratio, rect.size.y)), Color(color), 4.0)
+
+
+func _draw_rounded_rect(rect: Rect2, color: Color, radius: float) -> void:
+	var style := StyleBoxFlat.new()
+	style.bg_color = color
+	var corner := int(round(radius))
+	style.corner_radius_top_left = corner
+	style.corner_radius_top_right = corner
+	style.corner_radius_bottom_left = corner
+	style.corner_radius_bottom_right = corner
+	style.corner_detail = 4
+	style.anti_aliasing = true
+	style.anti_aliasing_size = 1.0
+	draw_style_box(style, rect)
+
+
+func _draw_game_result() -> void:
+	var viewport_size := get_viewport_rect().size
+	var text := "Unentschieden"
+	if board.winner_color == GameConfig.COLOR_PLAYER1:
+		text = "Spieler 1 gewinnt"
+	elif board.winner_color == GameConfig.COLOR_PLAYER2:
+		text = "Spieler 2 gewinnt"
+	var center := Vector2(viewport_size.x * 0.5, 28.0)
+	_draw_rounded_label(center, "Spiel beendet: " + text, 18, 6.0,
+		Color("#14171ce8"), Color.WHITE)
 
 
 func _text_size() -> int:
@@ -93,24 +148,26 @@ func _draw_cells() -> void:
 	#    Territoriums-Grenze liegt darueber; so bleiben keine Zellen grau, wenn
 	#    eine komplexe Clipflaeche nicht triangulierbar ist.
 	var shapes: Array = []
-	var raws: Array = []
 	shapes.resize(count)
-	raws.resize(count)
 	for i in range(count):
 		var poly := voronoi.cell_polygon(i)
 		if poly.size() < 3 or voronoi.area(i) <= 0.01:
 			continue
 		var screen := _to_screen_polygon(poly)
-		raws[i] = screen
 		var filled: PackedVector2Array = _fill_outlines[i]
 		if filled.size() < 3:
 			filled = screen
-		var parts := _clip_to_territory(i, filled)
-		if parts.is_empty():
-			parts = [filled]
+		# Die Zellfuellung bleibt die vollstaendig gerundete Zellform. Die
+		# Territoriumskontur wird separat darueber gezeichnet und beschneidet
+		# die Flaeche nicht, damit keine eckigen Schnittkanten entstehen.
+		var parts := [filled]
 		shapes[i] = parts
 		for part in parts:
 			_fill_polygon(part, Color(_fill_colors[i]))
+		if i == board.hovered_index or i == board.dragged_index:
+			var focus_color := Color(_fill_colors[i]).lerp(Color.WHITE, 0.2)
+			for part in parts:
+				_fill_polygon(part, focus_color)
 		if highlight_cells.has(i):
 			# Klingende Zelle: farbige Ueberlagerung folgt der Tonlautstaerke.
 			var play_color := Color(GameConfig.NOTE_PLAY_COLOR)
@@ -121,13 +178,7 @@ func _draw_cells() -> void:
 	# 2) Uebernahme-Warnung: die groesste Gegnerzelle blinkt.
 	_draw_takeover_blink(shapes)
 
-	# 3) Duenne graue Innenraender zwischen gleichfarbigen Zellen.
-	for i in range(count):
-		if raws[i] == null:
-			continue
-		_draw_cell_borders(i, raws[i], line_scale)
-
-	# 4) Durchgehende Frontlinie um jedes Territorium.
+	# 3) Durchgehende Frontlinie um jedes Territorium.
 	_draw_territory_lines(line_scale)
 
 
@@ -339,7 +390,9 @@ static func _arc_steps(trim: float, sweep: float) -> int:
 func _draw_territory_lines(line_scale: float) -> void:
 	var width := GameConfig.FRONT_FRAME_WIDTH * line_scale
 	for color in [GameConfig.COLOR_PLAYER1, GameConfig.COLOR_PLAYER2]:
-		var team := Color(color)
+		# Die Kontur bleibt in der Spielerfarbe, wird aber abgedunkelt, damit
+		# sie auch auf der gleichfarbigen Stufe-1-Flaeche sichtbar bleibt.
+		var team := Color(color).darkened(0.35)
 		var paths: Array = _territory_line.get(color, [])
 		for path in paths:
 			if path.size() < 3:
@@ -372,6 +425,8 @@ func _ensure_territories(line_scale: float) -> void:
 			var rounded: PackedVector2Array = fillet["path"]
 			for inner in Geometry2D.offset_polygon(rounded, -half, Geometry2D.JOIN_ROUND):
 				if inner.size() >= 3:
+					# Die geglaettete Linie liegt auf beiden Seiten um die halbe
+					# Rahmenbreite versetzt direkt an der gemeinsamen Grenze.
 					var smooth_line := _smooth_territory_path(_ensure_ccw(inner))
 					line_paths.append(_to_screen_polygon(smooth_line))
 			for inner in Geometry2D.offset_polygon(rounded, -inset, Geometry2D.JOIN_ROUND):
@@ -416,7 +471,8 @@ func _ensure_fill_outlines(line_scale: float) -> void:
 		and board.cell_colors == _cache_fill_colors \
 		and is_equal_approx(view_transform.scale, _cache_fill_scale) \
 		and view_transform.offset == _cache_fill_offset \
-		and is_equal_approx(config.corner_radius, _cache_fill_radius):
+		and is_equal_approx(config.corner_radius, _cache_fill_radius) \
+		and is_equal_approx(config.cell_gap, _cache_fill_gap):
 		return
 	var count := voronoi.cells.size()
 	_fill_colors = _cell_fill_colors(count)
@@ -433,6 +489,7 @@ func _ensure_fill_outlines(line_scale: float) -> void:
 	_cache_fill_scale = view_transform.scale
 	_cache_fill_offset = view_transform.offset
 	_cache_fill_radius = config.corner_radius
+	_cache_fill_gap = config.cell_gap
 
 
 ## Liegt der Punkt auf dem Rand des Bretts?
@@ -670,24 +727,6 @@ static func _quadratic(a: Vector2, b: Vector2, c: Vector2, t: float) -> Vector2:
 	return a * u * u + b * 2.0 * u * t + c * t * t
 
 
-## Weisse Umrandung der Zelle unter dem Mauszeiger: gerundet wie die
-## Zellgrenzen, in der Dicke der duennen Linie. Sie liegt ueber allen Rahmen.
-func _draw_hover_outline() -> void:
-	var index := board.hovered_index
-	if index < 0 or index >= voronoi.cells.size():
-		return
-	var poly := voronoi.cell_polygon(index)
-	if poly.size() < 3:
-		return
-	var path := _rounded_outline(_to_screen_polygon(poly),
-		config.corner_radius * view_transform.scale)
-	if path.size() < 3:
-		return
-	path.append(path[0])
-	draw_polyline(path, Color(GameConfig.POINT_HOVER_COLOR),
-		GameConfig.SAME_COLOR_FRAME_WIDTH * view_transform.scale, true)
-
-
 ## Gerundeter geschlossener Pfad eines Polygons: gerade Kanten mit
 ## abgerundeten konvexen Ecken (ohne Versatz, fuer die Hover-Umrandung).
 func _rounded_outline(poly: PackedVector2Array, radius: float) -> PackedVector2Array:
@@ -716,7 +755,7 @@ func _fill_outline(index: int, screen_poly: PackedVector2Array, line_scale: floa
 	if count < 3:
 		return screen_poly
 	var path := _rounded_outline(screen_poly, radius) if radius > 0.01 else screen_poly
-	var gap := GameConfig.SAME_COLOR_FRAME_WIDTH * line_scale * 0.5
+	var gap := (GameConfig.SAME_COLOR_FRAME_WIDTH * 0.5 + config.cell_gap) * line_scale
 	if gap <= 0.01:
 		return path
 	var join := Geometry2D.JOIN_ROUND if radius > 0.01 else Geometry2D.JOIN_MITER
@@ -748,6 +787,93 @@ func _draw_cell_labels() -> void:
 		if poly.size() < 3:
 			continue
 		_draw_neighbor_relative_label(focus, neighbor, value, poly, text_size, text_offset, point_radius)
+
+
+## Zeigt fuer jede echte Zelle den aufsummierten gegenseitigen Einfluss ihrer
+## Nachbarn. Groessere gleichfarbige Nachbarn wirken positiv, groessere
+## gegnerische Nachbarn negativ; gemeinsame Grenzlaengen werden einbezogen.
+func _draw_all_cell_ratios() -> void:
+	if voronoi.real_count <= 0:
+		return
+	var geometry := CellGeometry.from_voronoi(voronoi, true)
+	var ids := board.color_ids()
+	var values := _cell_influence_values(geometry, ids)
+	var text_size := _text_size()
+	var text_offset := (_font.get_ascent(text_size) - _font.get_descent(text_size)) * 0.5
+	for i in range(voronoi.real_count):
+		var poly := voronoi.cell_polygon(i)
+		if poly.size() < 3:
+			continue
+		var center := _to_screen(BoardGeometry.polygon_centroid(poly))
+		_draw_centered_label_text(center, str(BoardGeometry.js_round(values[i])), text_size,
+			text_offset, Color.BLACK)
+
+
+## Die groesste rote und blaue Zelle sind die beiden Referenzpunkte (+100/-100).
+## Beide Werte werden ueber bekannte Kanten weitergegeben und gegeneinander
+## verrechnet. Dadurch liegen umkaempfte Zellen nahe null.
+func _cell_influence_values(geometry: CellGeometry, ids: PackedByteArray) -> PackedFloat32Array:
+	var count := geometry.count()
+	var values := PackedFloat32Array()
+	values.resize(count)
+	values.fill(0.0)
+	if count == 0:
+		return values
+	var red_root := -1
+	var blue_root := -1
+	for i in range(count):
+		if i >= ids.size():
+			continue
+		if ids[i] == 1 and (red_root < 0 or geometry.areas[i] > geometry.areas[red_root]):
+			red_root = i
+		elif ids[i] == 2 and (blue_root < 0 or geometry.areas[i] > geometry.areas[blue_root]):
+			blue_root = i
+	var max_edge := 0.0
+	for lengths in geometry.edge_lengths:
+		for edge in lengths.values():
+			max_edge = maxf(max_edge, float(edge))
+	max_edge = maxf(max_edge, 0.001)
+	var red_influence := _propagate_influence(geometry, red_root, max_edge)
+	var blue_influence := _propagate_influence(geometry, blue_root, max_edge)
+	for i in range(count):
+		var red_value := red_influence[i] if red_influence[i] >= 0.0 else 0.0
+		var blue_value := blue_influence[i] if blue_influence[i] >= 0.0 else 0.0
+		var combined := clampf(red_value - blue_value, -100.0, 100.0)
+		if i < ids.size() and ids[i] == 1:
+			values[i] = maxf(0.0, combined)
+		elif i < ids.size() and ids[i] == 2:
+			values[i] = minf(0.0, combined)
+		else:
+			values[i] = combined
+	if red_root >= 0:
+		values[red_root] = 100.0
+	if blue_root >= 0:
+		values[blue_root] = -100.0
+	return values
+
+
+func _propagate_influence(geometry: CellGeometry, source: int, max_edge: float) -> PackedFloat32Array:
+	var scores := PackedFloat32Array()
+	scores.resize(geometry.count())
+	scores.fill(-1.0)
+	if source < 0 or source >= geometry.count():
+		return scores
+	scores[source] = 100.0
+	var queue: Array = [source]
+	while not queue.is_empty():
+		var current: int = queue.pop_front()
+		for neighbor in geometry.neighbors[current]:
+			if neighbor < 0 or neighbor >= geometry.count():
+				continue
+			var edge := float(geometry.edge_lengths[current].get(neighbor, 0.0))
+			if edge <= 0.0:
+				continue
+			var transmission := lerpf(0.45, 0.95, clampf(edge / max_edge, 0.0, 1.0))
+			var candidate := scores[current] * transmission
+			if candidate > scores[neighbor]:
+				scores[neighbor] = candidate
+				queue.append(neighbor)
+	return scores
 
 
 func _draw_relative_label(index: int, value: float, poly: PackedVector2Array,

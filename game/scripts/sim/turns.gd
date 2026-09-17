@@ -9,9 +9,12 @@ extends RefCounted
 
 ## Darf mit dieser Zelle ein Drag gestartet werden?
 static func can_start_drag(board: BoardState, cell_index: int, config: GameConfig) -> bool:
+	if board.game_over:
+		return false
 	if not config.alternating_moves:
 		return true
-	return board.cell_color(cell_index) == board.active_color
+	return board.cell_color(cell_index) == board.active_color \
+		and board.can_spend_stamina(board.active_color, config)
 
 
 ## Farbe des jeweils anderen Spielers.

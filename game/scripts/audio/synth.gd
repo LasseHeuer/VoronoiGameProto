@@ -66,10 +66,11 @@ func cell_frequency(plain: Voronoi, cell: int) -> float:
 	var ratio := clampf(area / GameConfig.BOARD_AREA, 0.0, 1.0)
 	var threshold := config.freq_threshold
 	if threshold <= 0.0:
-		return tuning.nearest(GameConfig.FREQ_LOW)
+		return tuning.nearest(GameConfig.FREQ_LOW * pow(2.0, config.octave_shift))
+	var octave_factor := pow(2.0, config.octave_shift)
 	if ratio <= threshold:
-		return tuning.nearest(GameConfig.FREQ_HIGH - (GameConfig.FREQ_HIGH - GameConfig.FREQ_LOW) * (ratio / threshold))
-	return tuning.nearest(GameConfig.FREQ_LOW)
+		return tuning.nearest((GameConfig.FREQ_HIGH - (GameConfig.FREQ_HIGH - GameConfig.FREQ_LOW) * (ratio / threshold)) * octave_factor)
+	return tuning.nearest(GameConfig.FREQ_LOW * octave_factor)
 
 
 ## Ausbreitung beim Klick: BFS ueber die Delaunay-Nachbarn des Hauptgraphen,

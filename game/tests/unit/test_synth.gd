@@ -35,10 +35,11 @@ func test_frequency_mapping_uses_cell_area() -> void:
 	# Zelle 0 hat ein Sechstel des Bretts: 1200 - 1150 * (1/6) / 0.2, danach
 	# auf die naechste Note der Stimmung gerundet.
 	var ratio := plain.area(0) / GameConfig.BOARD_AREA
-	var linear := GameConfig.FREQ_HIGH - (GameConfig.FREQ_HIGH - GameConfig.FREQ_LOW) * (ratio / config.freq_threshold)
+	var octave_factor := pow(2.0, config.octave_shift)
+	var linear := (GameConfig.FREQ_HIGH - (GameConfig.FREQ_HIGH - GameConfig.FREQ_LOW) * (ratio / config.freq_threshold)) * octave_factor
 	assert_almost_eq(synth.cell_frequency(plain, 0), synth.tuning.nearest(linear), 0.01)
 	# Zelle 1 ist groesser als die Schwelle -> tiefster Ton
-	assert_almost_eq(synth.cell_frequency(plain, 1), synth.tuning.nearest(GameConfig.FREQ_LOW), 0.01)
+	assert_almost_eq(synth.cell_frequency(plain, 1), synth.tuning.nearest(GameConfig.FREQ_LOW * octave_factor), 0.01)
 
 
 func test_frequency_falls_back_for_invalid_cell() -> void:

@@ -38,7 +38,7 @@ func test_defaults_match_the_reference_values() -> void:
 	assert_almost_eq(config.freq_threshold, 0.2, 0.0001)
 	assert_almost_eq(config.spread_time, 0.6, 0.0001)
 	assert_eq(config.spread_depth, 2)
-	assert_eq(config.cell_count, 20)
+	assert_eq(config.cell_count, 16)
 	assert_almost_eq(config.push_factor, 0.2, 0.0001)
 	assert_almost_eq(config.push_radius, 40.0, 0.0001)
 	assert_almost_eq(config.border_margin, 50.0, 0.0001)
@@ -66,7 +66,7 @@ func test_reset_to_defaults() -> void:
 	config.dummy_points = false
 	config.reset_to_defaults()
 	assert_almost_eq(config.attack, 0.05, 0.0001)
-	assert_eq(config.cell_count, 20)
+	assert_eq(config.cell_count, 16)
 	assert_true(config.dummy_points)
 
 
@@ -129,6 +129,29 @@ func test_board_state_all_points_respects_the_dummy_switch() -> void:
 	assert_eq(board.all_points().size(), 3)
 	board.use_dummy_points = false
 	assert_eq(board.all_points().size(), 2)
+
+
+func test_stamina_end_phase_allows_multiple_moves() -> void:
+	var config := GameConfig.new()
+	var board := BoardState.new()
+	board.reset_stamina(config)
+	board.stamina_player1 = 0.0
+	board.stamina_player2 = 10.0
+	board.active_color = GameConfig.COLOR_PLAYER1
+
+	board.complete_move(GameConfig.COLOR_PLAYER1, config)
+	assert_eq(board.active_color, GameConfig.COLOR_PLAYER2)
+	assert_false(board.game_over)
+	assert_eq(board.final_move_color, GameConfig.COLOR_PLAYER2)
+
+	board.stamina_player2 = 5.0
+	board.complete_move(GameConfig.COLOR_PLAYER2, config)
+	assert_false(board.game_over)
+	assert_eq(board.active_color, GameConfig.COLOR_PLAYER2)
+
+	board.stamina_player2 = 0.0
+	board.complete_move(GameConfig.COLOR_PLAYER2, config)
+	assert_true(board.game_over)
 
 
 func test_settings_panel_builds_rows_and_writes_back_to_config() -> void:

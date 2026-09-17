@@ -21,6 +21,13 @@ var cell_colors := PackedStringArray()
 ## Aktuell ziehender Spieler (Farbe).
 var active_color := ""
 
+## Verbleibende Ausdauer. Sie wird nur bei wechselnden Zuegen verwendet.
+var stamina_player1 := 1000.0
+var stamina_player2 := 1000.0
+var game_over := false
+var winner_color := ""
+var final_move_color := ""
+
 ## Visualisierungsdaten fuer Zeiger und Drag-Linien (von
 ## input/board_input.gd geschrieben, von view/board_renderer.gd gelesen).
 var hovered_index := -1
@@ -41,6 +48,54 @@ func reset_colors() -> void:
 	cell_colors = PackedStringArray()
 	cell_colors.resize(points.size())
 	cell_colors.fill("")
+
+
+func reset_stamina(config: GameConfig) -> void:
+	stamina_player1 = config.stamina
+	stamina_player2 = config.stamina
+	game_over = false
+	winner_color = ""
+	final_move_color = ""
+
+
+func stamina_for_color(color: String) -> float:
+	if color == GameConfig.COLOR_PLAYER1:
+		return stamina_player1
+	if color == GameConfig.COLOR_PLAYER2:
+		return stamina_player2
+	return 0.0
+
+
+func can_spend_stamina(color: String, config: GameConfig) -> bool:
+	return not config.alternating_moves or stamina_for_color(color) > 0.001
+
+
+func spend_stamina(color: String, distance: float, config: GameConfig) -> float:
+	if not config.alternating_moves or distance <= 0.0:
+		return 0.0
+	var spent := minf(distance, stamina_for_color(color))
+	if color == GameConfig.COLOR_PLAYER1:
+		stamina_player1 = maxf(0.0, stamina_player1 - spent)
+	elif color == GameConfig.COLOR_PLAYER2:
+		stamina_player2 = maxf(0.0, stamina_player2 - spent)
+	return spent
+
+
+func complete_move(color: String, config: GameConfig) -> void:
+	if not config.alternating_moves or game_over:
+		return
+	var p1_empty := stamina_player1 <= 0.001
+	var p2_empty := stamina_player2 <= 0.001
+	if p1_empty and p2_empty:
+		game_over = true
+		return
+	if final_move_color != "":
+		active_color = final_move_color
+		return
+	if p1_empty or p2_empty:
+		var remaining := GameConfig.COLOR_PLAYER2 if p1_empty else GameConfig.COLOR_PLAYER1
+		final_move_color = remaining
+		active_color = remaining
 
 
 func set_cell_color(index: int, color: String) -> void:

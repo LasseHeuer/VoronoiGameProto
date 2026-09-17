@@ -16,13 +16,13 @@
         </g>
         <g id="B" transform="matrix(-3.460257,-0,0,-3.398491,5698.375139,4951.975058)">
             <g id="_31" serif:id="3" transform="matrix(1,0,0,1,594.094058,0)">
-                <rect x="383.254" y="481.972" width="308.884" height="308.884" style="fill:rgb(55,229,255);"/>
+                <rect x="383.254" y="481.972" width="308.884" height="308.884" style="fill:rgb(55,230,255);"/>
             </g>
             <g id="_21" serif:id="2" transform="matrix(1,0,0,1,594.094058,308.88351)">
-                <rect x="383.254" y="481.972" width="308.884" height="308.884" style="fill:rgb(55,165,255);"/>
+                <rect x="383.254" y="481.972" width="308.884" height="308.884" style="fill:rgb(55,191,255);"/>
             </g>
             <g id="_11" serif:id="1" transform="matrix(1,0,0,1,594.094058,617.767019)">
-                <rect x="383.254" y="481.972" width="308.884" height="308.884" style="fill:rgb(67,84,255);"/>
+                <rect x="383.254" y="481.972" width="308.884" height="308.884" style="fill:rgb(67,143,255);"/>
             </g>
         </g>
     </g>
