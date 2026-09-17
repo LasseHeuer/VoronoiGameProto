@@ -6,7 +6,7 @@
 visible = false
 anchors_preset = 9
 anchor_bottom = 1.0
-offset_right = 430.0
+offset_right = 470.0
 grow_vertical = 2
 script = ExtResource("1_panel")
 
@@ -41,6 +41,7 @@ text = "×"
 [node name="Scroll" type="ScrollContainer" parent="Margin/Layout"]
 layout_mode = 2
 size_flags_vertical = 3
+horizontal_scroll_mode = 0
 
 [node name="Rows" type="VBoxContainer" parent="Margin/Layout/Scroll"]
 layout_mode = 2

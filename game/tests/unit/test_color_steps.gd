@@ -18,6 +18,7 @@ func _board_with_two_changes() -> Array:
 	board.set_cell_color(1, GameConfig.COLOR_PLAYER1)
 	board.set_cell_color(2, GameConfig.COLOR_PLAYER1)
 	board.set_cell_color(3, GameConfig.COLOR_PLAYER2)
+	board.active_color = GameConfig.COLOR_PLAYER1
 	return [board, Voronoi.from_board(board, RECT)]
 
 
@@ -47,9 +48,24 @@ func test_first_step_runs_immediately() -> void:
 	var steps := ColorSteps.new()
 	var before := board.cell_colors.duplicate()
 
-	assert_true(steps.advance(1000.0, 25.0, board, main, GameConfig.COLOR_PROPAGATION_ITERATIONS))
+	assert_ne(steps.advance(1000.0, 25.0, board, main, GameConfig.COLOR_PROPAGATION_ITERATIONS), -1,
+		"ein eigener Verlust wird gemeldet")
 	assert_eq(_changed_cells(before, board.cell_colors), 1, "genau ein Wechsel laeuft sofort")
-	assert_false(steps.is_idle(), "weitere Wechsel sind noch offen")
+	assert_true(steps.is_idle(), "die naechste Entscheidung wird aus dem aktuellen Brett berechnet")
+
+
+## Wechselt eine Gegnerzelle die Farbe, ist das kein eigener Verlust.
+func test_a_gained_cell_is_not_reported_as_a_loss() -> void:
+	var setup := _board_with_two_changes()
+	var board: BoardState = setup[0]
+	var main: Voronoi = setup[1]
+	var steps := ColorSteps.new()
+	board.active_color = GameConfig.COLOR_PLAYER2
+	var before := board.cell_colors.duplicate()
+
+	assert_eq(steps.advance(1000.0, 25.0, board, main, GameConfig.COLOR_PROPAGATION_ITERATIONS), -1,
+		"kein eigener Verlust")
+	assert_eq(_changed_cells(before, board.cell_colors), 1, "trotzdem wird gewechselt")
 
 
 func test_steps_wait_for_the_interval() -> void:
@@ -63,7 +79,7 @@ func test_steps_wait_for_the_interval() -> void:
 
 	steps.advance(1010.0, 25.0, board, main, GameConfig.COLOR_PROPAGATION_ITERATIONS)
 	assert_eq(board.cell_colors, after_first, "vor Ablauf des Intervalls passiert nichts")
-	assert_false(steps.is_idle(), "der zweite Wechsel wartet noch")
+	assert_false(steps.is_idle(), "der naechste Wechsel wartet noch auf das Intervall")
 
 	steps.advance(1030.0, 25.0, board, main, GameConfig.COLOR_PROPAGATION_ITERATIONS)
 	assert_true(steps.is_idle(), "nach Ablauf des Intervalls ist alles angewendet")
@@ -112,7 +128,7 @@ func test_clear_stops_pending_steps() -> void:
 	var steps := ColorSteps.new()
 
 	steps.advance(1000.0, 25.0, board, main, GameConfig.COLOR_PROPAGATION_ITERATIONS)
-	assert_false(steps.is_idle())
+	assert_true(steps.is_idle(), "der naechste Wechsel wird spaeter neu berechnet")
 
 	steps.clear()
 

@@ -30,10 +30,11 @@ var drag_same_neighbor_area := 0.0
 var drag_opponent_neighbor := -1
 var drag_opponent_neighbor_area := 0.0
 
-## Territorium der erlaubten Bewegung beim Drag: geschlossene Kontur um die
-## gezogene Zelle (nur bei "Verhindere Verlust").
-var drag_limit_active := false
-var drag_limit_region := PackedVector2Array()
+## Warnung vor der Uebernahme der gezogenen Zelle: 0 = keine Gefahr,
+## 1 = unmittelbar davor. Geschrieben von input/board_input.gd.
+var drag_warn := 0.0
+## Aktueller Blink-Puls (0..1) fuer Gegnerzelle und Verbindungslinie.
+var drag_blink := 0.0
 
 
 func reset_colors() -> void:
@@ -108,5 +109,5 @@ func clear_drag_visuals() -> void:
 	drag_same_neighbor_area = 0.0
 	drag_opponent_neighbor = -1
 	drag_opponent_neighbor_area = 0.0
-	drag_limit_active = false
-	drag_limit_region = PackedVector2Array()
+	drag_warn = 0.0
+	drag_blink = 0.0

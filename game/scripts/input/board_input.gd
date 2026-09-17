@@ -3,8 +3,8 @@ extends Node
 
 ## Maus -> Drag/Klick-Intents. Uebersetzt Fensterkoordinaten in
 ## Brettkoordinaten und fuehrt die Drag-Zustandsmaschine
-## (Hit-Test, Zug-Erlaubnis, Slow-Faktor, Block-Reversion,
-## automatischer Farbwechsel, Drag-Linien-Daten).
+## (Hit-Test, Zug-Erlaubnis, Slow-Faktor, automatischer Farbwechsel,
+## Drag-Linien-Daten und Uebernahme-Warnung).
 ##
 ## Klang und Geometrie werden nicht selbst berechnet: das Modul meldet
 ## Intents per Signal und bekommt die Geometrie einmal pro Tick hereingegeben.
@@ -22,8 +22,6 @@ var board: BoardState
 var config: GameConfig
 
 var transform := BoardTransform.new()
-## Territorium der erlaubten Bewegung (Verlust-Schutz).
-var limit := DragLimit.new()
 
 var _dragging := false
 var _dragged_index := -1
@@ -38,19 +36,11 @@ var _pending_spread_index := -1
 var _pending_spread_pos := Vector2.ZERO
 var _hover_dirty := false
 var _hover_cell := -1
-## Letzte Position, an der kein Farbverlust auftrat (nur ohne Verlust-Schutz
-## gleich der aktuellen Position).
-var _safe_pos := Vector2.ZERO
-## Farbe der gezogenen Zelle beim Aufsetzen.
-var _drag_color := ""
-var _blocked := false
-var _blocked_cursor := Vector2.ZERO
 
 
 func setup(p_board: BoardState, p_config: GameConfig) -> void:
 	board = p_board
 	config = p_config
-	limit.setup(p_board)
 
 
 func is_dragging() -> bool:
@@ -92,10 +82,6 @@ func _on_press(screen_pos: Vector2) -> void:
 		_successful_drag = false
 		_color_switched_automatically = false
 		_drag_start = board.points[hit]
-		_drag_color = board.cell_color(hit)
-		_safe_pos = _drag_start
-		_blocked = false
-		limit.begin(hit)
 		board.clear_drag_visuals()
 		drag_volume_requested.emit(hit)
 		return
@@ -119,7 +105,6 @@ func _on_release() -> void:
 		_color_switched_automatically = false
 	drag_tones_stop_requested.emit(-1)
 	_successful_drag = false
-	limit.clear()
 	if board != null:
 		board.clear_drag_visuals()
 	if released_index >= 0:
@@ -190,15 +175,11 @@ func update_hover(plain: Voronoi) -> void:
 
 ## Bewegung des gezogenen Punktes (mousemove-Aequivalent), einmal pro Tick.
 ##
-## Der Punkt folgt dem Zeiger auf dem Strahl vom Startpunkt aus. Vor der
-## Grenze des Territoriums wird er dabei weich abgebremst (siehe
-## DragLimit.braked_distance): je weiter es in Richtung eines Farbwechsels
-## geht, desto staerker die Bremse, ohne Springen oder Ruckeln.
+## Der Punkt folgt dem Zeiger auf dem Strahl vom Startpunkt aus. Wechselt die
+## Zelle dabei die Farbe, endet der Zug mit automatischem Farbwechsel
+## (should_switch_automatically).
 func apply_drag_motion() -> void:
 	if not _dragging or _dragged_index < 0:
-		return
-	if _blocked and _cursor == _blocked_cursor:
-		# Schon an der Grenze und der Zeiger steht still: nichts zu tun.
 		return
 	var from := board.points[_dragged_index]
 	var offset := _cursor - _drag_start
@@ -212,8 +193,6 @@ func apply_drag_motion() -> void:
 		return
 	var direction := offset / distance
 	var target := distance
-	if config.prevent_loss:
-		target = limit.braked_distance(_drag_start, _cursor)
 	if _is_too_close():
 		# Langsam an das Ziel herantasten statt springen.
 		var current := from.distance_to(_drag_start)
@@ -242,7 +221,6 @@ func apply_drag_motion() -> void:
 		_dragged_index = -1
 		board.active_color = new_color
 		_color_switched_automatically = true
-		limit.clear()
 		board.clear_drag_visuals()
 		return
 
@@ -259,46 +237,22 @@ func _is_too_close() -> bool:
 	return false
 
 
-## Verlust-Schutz: wuerde die aktuelle Position Zellen der gezogenen Farbe
-## an den Gegner verlieren, wird der Punkt auf die letzte sichere Position
-## zurueckgenommen. Gibt true zurueck, wenn zurueckgenommen wurde - dann muss
-## die Geometrie neu aufgebaut werden.
-##
-## Eigene Nachbarzellen zaehlen dabei nicht mit: zwischen eigenen Punkten
-## kommt die Zelle durch, ohne dass sie ihre Farbe verliert.
-func apply_loss_limit(main: Voronoi) -> bool:
-	if not _dragging or _dragged_index < 0 or main == null:
-		return false
-	if not config.prevent_loss:
-		_safe_pos = board.points[_dragged_index]
-		_blocked = false
-		return false
-	var lost := Territories.lost_cells(CellGeometry.from_voronoi(main), board.color_ids(),
-		GameConfig.COLOR_PROPAGATION_ITERATIONS, _drag_color, _own_neighbors(main))
-	if lost <= 0:
-		_safe_pos = board.points[_dragged_index]
-		_blocked = false
-		return false
-	# Die Bremse merkt sich diese Richtung: dort stoppt sie kuenftig frueher.
-	limit.note_blocked(_drag_start, board.points[_dragged_index])
-	var points := board.points
-	points[_dragged_index] = _safe_pos
-	board.points = points
-	_blocked = true
-	_blocked_cursor = _cursor
-	return true
+## Wie nahe ist die gezogene Zelle an der Uebernahme? Die Ausbreitung kippt
+## sie, sobald ihr groesster sichtbarer Nachbar die Gegnerfarbe traegt. Mass
+## ist der Flaechen-Vorsprung des groessten Gegners gegenueber dem groessten
+## gleichfarbigen Nachbarn: 0 = keine Gefahr, 1 = unmittelbar am Kipp-Punkt.
+func _takeover_warning() -> float:
+	var opponent := board.drag_opponent_neighbor_area
+	var same := board.drag_same_neighbor_area
+	var total := opponent + same
+	if total <= 0.0:
+		return 0.0
+	var ratio := opponent / total
+	return clampf((ratio - GameConfig.BLINK_WARN_RATIO) / (0.5 - GameConfig.BLINK_WARN_RATIO), 0.0, 1.0)
 
 
-## Eigene, sichtbare Nachbarn der gezogenen Zelle.
-func _own_neighbors(main: Voronoi) -> PackedInt32Array:
-	var out := PackedInt32Array()
-	for nb in main.visible_neighbors_of(_dragged_index):
-		if nb < board.points.size() and board.cell_color(nb) == _drag_color:
-			out.append(nb)
-	return out
-
-
-## Linien zum groessten gleichen bzw. gegnerischen Nachbarn.
+## Linien zum groessten gleichen bzw. gegnerischen Nachbarn und die Warnung
+## vor der Uebernahme.
 func update_drag_visuals(main: Voronoi) -> void:
 	if not _dragging or _dragged_index < 0 or main == null:
 		return
@@ -310,12 +264,7 @@ func update_drag_visuals(main: Voronoi) -> void:
 	board.drag_same_neighbor_area = same["max_area"]
 	board.drag_opponent_neighbor = other["cell_id"]
 	board.drag_opponent_neighbor_area = other["max_area"]
-	board.drag_limit_active = config.prevent_loss
-	if config.prevent_loss:
-		limit.update(main, GameConfig.COLOR_PROPAGATION_ITERATIONS)
-		board.drag_limit_region = limit.outline()
-	else:
-		board.drag_limit_region = PackedVector2Array()
+	board.drag_warn = _takeover_warning()
 
 
 func _hit_point(pos: Vector2) -> int:

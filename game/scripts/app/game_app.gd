@@ -9,7 +9,7 @@ extends Node
 ## Reihenfolge pro Tick folgt animate() aus src/core.js:
 ## Abstandskraefte -> Geschwindigkeiten -> Geometrie -> Clamping ->
 ## Farbausbreitung. Zusaetzlich: Hover-Toene, die Tonkaskade nach dem
-## Loslassen und der Verlust-Schutz beim Drag.
+## Loslassen und der Pitch-Down bei einem Zellverlust.
 
 const BOARD_RECT := Rect2(0, 0, GameConfig.BOARD_WIDTH, GameConfig.BOARD_HEIGHT)
 
@@ -34,6 +34,8 @@ var _color_steps := ColorSteps.new()
 var _resting := false
 var _last_points := PackedVector2Array()
 var _last_colors := PackedStringArray()
+## Phase des Blink-Pulses der Uebernahme-Warnung (0..1).
+var _blink_phase := 0.0
 
 
 func _ready() -> void:
@@ -120,21 +122,17 @@ func _physics_process(_delta: float) -> void:
 	# 6) Rand-Clamping
 	Relaxation.clamp_to_canvas(board, config)
 
-	# 6b) Verlust-Schutz: kostet die Position Zellen, geht sie zurueck.
-	if board_input.apply_loss_limit(voronoi_main):
-		voronoi_main = Voronoi.from_board(board, BOARD_RECT)
-
 	# 7) Farbausbreitung. Waehrend eines Drags laeuft sie im Original
-	#    zweimal pro Frame (mousemove und animate). Ohne Verlust-Schutz
-	#    werden die Wechsel nur nacheinander angewendet, damit ein
-	#    Gebietsverlust nicht in einem einzigen Tick passiert.
+	#    zweimal pro Frame (mousemove und animate). Die Wechsel werden
+	#    nacheinander angewendet, damit ein Gebietsverlust nicht in einem
+	#    einzigen Tick passiert. Jeder eigene Verlust loest einen Pitch-Down
+	#    aus.
 	var passes := 2 if board_input.is_dragging() else 1
 	for i in range(passes):
-		if config.prevent_loss:
-			_color_steps.clear()
-			Territories.update_colors_by_largest_neighbor(board, voronoi_main, GameConfig.COLOR_PROPAGATION_ITERATIONS)
-		else:
-			_color_steps.advance(float(Time.get_ticks_msec()), config.loss_step_ms, board, voronoi_main, GameConfig.COLOR_PROPAGATION_ITERATIONS)
+		var lost := _color_steps.advance(float(Time.get_ticks_msec()), config.loss_step_ms,
+			board, voronoi_main, GameConfig.COLOR_PROPAGATION_ITERATIONS)
+		if lost >= 0:
+			audio.pitch_down(lost, voronoi_plain)
 
 	# 7b) Nach dem Loslassen breitet sich der Ton als Kaskade aus
 	#    (spreadNotes im mouseup des Originals).
@@ -149,10 +147,24 @@ func _physics_process(_delta: float) -> void:
 	_last_colors = board.cell_colors
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	audio.process()
+	_update_blink(delta)
 	board_view.highlight_cells = audio.active_highlight_cells()
 	board_view.queue_redraw()
+
+
+## Blink-Puls fuer die Uebernahme-Warnung: je groesser die Gefahr, desto
+## kuerzer die Phase. Ohne Warnung ist der Puls aus.
+func _update_blink(delta: float) -> void:
+	var warn: float = board.drag_warn if board_input.is_dragging() else 0.0
+	if warn <= 0.0:
+		_blink_phase = 0.0
+		board.drag_blink = 0.0
+		return
+	var period: float = lerpf(GameConfig.BLINK_SLOW_SEC, GameConfig.BLINK_FAST_SEC, warn)
+	_blink_phase = fmod(_blink_phase + delta / maxf(period, 0.01), 1.0)
+	board.drag_blink = 1.0 - absf(_blink_phase * 2.0 - 1.0)
 
 
 func _apply_view_transform() -> void:

@@ -53,10 +53,10 @@ func test_cell_numbers_are_hidden_by_default() -> void:
 	assert_true(GameConfig.DEFAULTS.has("show_cell_numbers"))
 
 
-func test_loss_protection_defaults() -> void:
+func test_loss_step_default() -> void:
 	var config := GameConfig.new()
-	assert_true(config.prevent_loss, "der Verlust-Schutz ist beim Start aktiv")
 	assert_almost_eq(config.loss_step_ms, 25.0, 0.0001, "Verlust-Schritt startet bei 25 ms")
+	assert_true(GameConfig.DEFAULTS.has("loss_step_ms"))
 
 
 func test_reset_to_defaults() -> void:

@@ -119,153 +119,52 @@ func _make_plain(input: BoardInput) -> Voronoi:
 	return Voronoi.from_points(input.board.points, Rect2(0.0, 0.0, GameConfig.BOARD_WIDTH, GameConfig.BOARD_HEIGHT))
 
 
-## Zwei Zellen: die linke gehoert dem Gegner, die rechte (groessere) dem
-## Spieler - sie wuerde bei der Ausbreitung an den Gegner fallen.
-func _make_two_cell_board(prevent_loss: bool) -> Array:
-	var config := GameConfig.new()
-	config.alternating_moves = false
-	config.prevent_loss = prevent_loss
-	var board := BoardState.new()
-	board.points = PackedVector2Array([Vector2(200.0, 300.0), Vector2(100.0, 300.0)])
-	board.dummy_points = PackedVector2Array()
-	board.reset_colors()
-	board.set_cell_color(0, GameConfig.COLOR_PLAYER1)
-	board.set_cell_color(1, GameConfig.COLOR_PLAYER2)
-	board.active_color = GameConfig.COLOR_PLAYER1
-	var input := BoardInput.new()
-	input.setup(board, config)
-	input.update_transform(Vector2(GameConfig.BOARD_WIDTH, GameConfig.BOARD_HEIGHT))
-	add_child_autofree(input)
-	return [input, board]
-
-
-func test_loss_limit_reverts_a_losing_drag() -> void:
-	var setup := _make_two_cell_board(true)
-	var input: BoardInput = setup[0]
-	var board: BoardState = setup[1]
-	var rect := Rect2(0.0, 0.0, GameConfig.BOARD_WIDTH, GameConfig.BOARD_HEIGHT)
-	var start := board.points[0]
-
-	input._on_press(start)
-	_move_cursor(input, Vector2(230.0, 300.0))
-	input.apply_drag_motion()
-	assert_ne(board.points[0], start, "die Bewegung wird zuerst ausgefuehrt")
-
-	var main := Voronoi.from_board(board, rect)
-	assert_gt(Territories.lost_cells(CellGeometry.from_voronoi(main), board.color_ids(), GameConfig.COLOR_PROPAGATION_ITERATIONS, GameConfig.COLOR_PLAYER1), 0)
-
-	assert_true(input.apply_loss_limit(main), "die Bewegung wird zurueckgenommen")
-	assert_eq(board.points[0], start, "der Punkt steht wieder am Start")
-
-
-func test_loss_limit_keeps_the_previous_position() -> void:
-	var setup := _make_two_cell_board(true)
+## Die Drag-Daten zeigen auf die groessten Nachbarn je Farbe; die Warnung
+## steigt mit dem Flaechen-Vorsprung des Gegners. Nach dem Loslassen ist alles
+## zurueckgesetzt.
+func test_drag_visuals_report_neighbors_and_warning() -> void:
+	var setup := _make_three_cell_board()
 	var input: BoardInput = setup[0]
 	var board: BoardState = setup[1]
 	var rect := Rect2(0.0, 0.0, GameConfig.BOARD_WIDTH, GameConfig.BOARD_HEIGHT)
 
 	input._on_press(board.points[0])
-	_move_cursor(input, Vector2(230.0, 300.0))
-	input.apply_drag_motion()
-	input.apply_loss_limit(Voronoi.from_board(board, rect))
-
-	# Zweiter Versuch mit stillstehendem Zeiger: nichts passiert.
-	var blocked_pos := board.points[0]
-	input.apply_drag_motion()
-	assert_eq(board.points[0], blocked_pos, "an der Grenze bewegt sich nichts mehr")
-
-	# Weiter ziehen bleibt ebenfalls wirkungslos.
-	_move_cursor(input, Vector2(500.0, 300.0))
-	input.apply_drag_motion()
-	input.apply_loss_limit(Voronoi.from_board(board, rect))
-	assert_eq(board.points[0], blocked_pos, "die Grenze bleibt bestehen")
-
-
-func test_loss_limit_is_inactive_when_switched_off() -> void:
-	var setup := _make_two_cell_board(false)
-	var input: BoardInput = setup[0]
-	var board: BoardState = setup[1]
-	var rect := Rect2(0.0, 0.0, GameConfig.BOARD_WIDTH, GameConfig.BOARD_HEIGHT)
-	var start := board.points[0]
-
-	input._on_press(start)
-	_move_cursor(input, Vector2(230.0, 300.0))
-	input.apply_drag_motion()
-	var moved := board.points[0]
-
-	assert_false(input.apply_loss_limit(Voronoi.from_board(board, rect)))
-	assert_eq(board.points[0], moved, "ohne Schutz bleibt die Bewegung stehen")
-	assert_ne(board.points[0], start)
-
-
-func test_drag_visuals_show_the_allowed_territory() -> void:
-	var setup := _make_two_cell_board(true)
-	var input: BoardInput = setup[0]
-	var board: BoardState = setup[1]
-	var rect := Rect2(0.0, 0.0, GameConfig.BOARD_WIDTH, GameConfig.BOARD_HEIGHT)
-
-	input._on_press(board.points[0])
-	_move_cursor(input, Vector2(230.0, 300.0))
+	_move_cursor(input, Vector2(240.0, 292.0))
 	input.apply_drag_motion()
 	input.update_drag_visuals(Voronoi.from_board(board, rect))
 
-	assert_true(board.drag_limit_active)
-	assert_gte(board.drag_limit_region.size(), 3, "das Territorium ist eine Kontur")
-	for i in range(8):
-		input.update_drag_visuals(Voronoi.from_board(board, rect))
-	assert_gte(board.drag_limit_region.size(), 3)
+	assert_eq(board.dragged_index, 0)
+	assert_eq(board.drag_same_neighbor, 1, "gleichfarbiger Nachbar erkannt")
+	assert_eq(board.drag_opponent_neighbor, 2, "Gegner erkannt")
+	assert_true(board.drag_warn > 0.0 and board.drag_warn <= 1.0,
+		"der grosse Gegner loest eine Warnung aus")
 
 	input._on_release()
-	assert_false(board.drag_limit_active, "nach dem Loslassen verschwindet das Territorium")
-	assert_eq(board.drag_limit_region.size(), 0)
+	assert_eq(board.dragged_index, -1, "nach dem Loslassen sind die Daten weg")
+	assert_eq(board.drag_warn, 0.0)
+	assert_eq(board.drag_blink, 0.0)
 
 
-func test_drag_visuals_have_no_territory_without_protection() -> void:
-	var setup := _make_two_cell_board(false)
+## Ohne Gegner in Reichweite gibt es keine Warnung.
+func test_drag_warning_stays_zero_without_an_opponent() -> void:
+	var setup := _make_three_cell_board()
 	var input: BoardInput = setup[0]
 	var board: BoardState = setup[1]
 	var rect := Rect2(0.0, 0.0, GameConfig.BOARD_WIDTH, GameConfig.BOARD_HEIGHT)
+	board.set_cell_color(2, GameConfig.COLOR_PLAYER1)
 
 	input._on_press(board.points[0])
-	_move_cursor(input, Vector2(230.0, 300.0))
+	_move_cursor(input, Vector2(240.0, 292.0))
 	input.apply_drag_motion()
 	input.update_drag_visuals(Voronoi.from_board(board, rect))
 
-	assert_false(board.drag_limit_active)
-	assert_eq(board.drag_limit_region.size(), 0)
-
-
-func test_own_neighbors_are_collected() -> void:
-	# Eigene Nachbarzellen werden beim Verlust-Schutz uebersprungen.
-	var config := GameConfig.new()
-	config.alternating_moves = false
-	config.prevent_loss = true
-	var board := BoardState.new()
-	board.points = PackedVector2Array([
-		Vector2(200.0, 290.0), Vector2(280.0, 305.0), Vector2(700.0, 300.0)])
-	board.dummy_points = PackedVector2Array()
-	board.reset_colors()
-	board.set_cell_color(0, GameConfig.COLOR_PLAYER1)
-	board.set_cell_color(1, GameConfig.COLOR_PLAYER1)
-	board.set_cell_color(2, GameConfig.COLOR_PLAYER2)
-	board.active_color = GameConfig.COLOR_PLAYER1
-	var input := BoardInput.new()
-	input.setup(board, config)
-	input.update_transform(Vector2(GameConfig.BOARD_WIDTH, GameConfig.BOARD_HEIGHT))
-	add_child_autofree(input)
-	var rect := Rect2(0.0, 0.0, GameConfig.BOARD_WIDTH, GameConfig.BOARD_HEIGHT)
-
-	input._on_press(board.points[0])
-	var own := input._own_neighbors(Voronoi.from_board(board, rect))
-
-	assert_eq(own, PackedInt32Array([1]), "nur die eigene Nachbarzelle zaehlt")
+	assert_eq(board.drag_warn, 0.0, "ohne Gegner keine Warnung")
 
 
 ## Drei Zellen: links zwei eigene, rechts eine Gegnerzelle.
 func _make_three_cell_board() -> Array:
 	var config := GameConfig.new()
 	config.alternating_moves = false
-	config.prevent_loss = true
 	var board := BoardState.new()
 	board.points = PackedVector2Array([
 		Vector2(200.0, 290.0), Vector2(280.0, 305.0), Vector2(700.0, 300.0)])
@@ -282,42 +181,23 @@ func _make_three_cell_board() -> Array:
 	return [input, board]
 
 
-## Das Ziehen wird vor der Grenze des Territoriums immer staerker gebremst:
-## der Punkt bleibt hinter dem Zeiger, bleibt im Territorium und springt nicht.
-func test_drag_is_braked_smoothly_towards_the_territory_edge() -> void:
+## Der gezogene Punkt folgt dem Zeiger ungebremst. Den Schutz uebernimmt der
+## Verlust-Schutz, der eine verlustbringende Bewegung zuruecknimmt.
+func test_drag_follows_the_cursor_without_braking() -> void:
 	var setup := _make_three_cell_board()
 	var input: BoardInput = setup[0]
 	var board: BoardState = setup[1]
-	var rect := Rect2(0.0, 0.0, GameConfig.BOARD_WIDTH, GameConfig.BOARD_HEIGHT)
 	var start := board.points[0]
 
 	input._on_press(start)
-	input.update_drag_visuals(Voronoi.from_board(board, rect))
-	assert_true(input.limit.is_ready(), "das Territorium steht fest")
-	var allowed := input.limit._allowed_distance(start, Vector2(1.0, 0.0))
-	assert_gt(allowed, 0.0, "in dieser Richtung ist Platz")
+	var target := start + Vector2(-130.0, 0.0)
+	_move_cursor(input, target)
+	input.apply_drag_motion()
 
-	var previous := 0.0
-	var ratios: Array = []
-	for factor in [0.5, 1.0, 2.0, 4.0]:
-		_move_cursor(input, start + Vector2(allowed * float(factor), 0.0))
-		input.apply_drag_motion()
-		var position := board.points[0]
-		var distance := position.distance_to(start)
-		assert_gt(distance, previous, "die Bewegung laeuft nur nach vorne")
-		assert_lte(distance, allowed * float(factor) + 0.001, "der Punkt bleibt hinter dem Zeiger")
-		if is_equal_approx(float(factor), 1.0):
-			assert_true(BoardGeometry.point_in_polygon(position, input.limit.outline()),
-				"der gebremste Punkt bleibt im Territorium")
-		ratios.append(distance / (allowed * float(factor)))
-		previous = distance
-
-	assert_gt(ratios[0], ratios[1], "die Bremse setzt ein")
-	assert_gt(ratios[1], ratios[2], "die Bremse nimmt zu")
-	assert_gt(ratios[2], ratios[3], "die Bremse nimmt weiter zu")
-	assert_lte(previous, allowed + 0.001, "die Grenze wird nie erreicht")
-	assert_almost_eq(previous, allowed, DragLimit.STOP_MARGIN + 2.0,
-		"kurz vor der Grenze steht der Punkt an der Grenze")
+	assert_almost_eq(board.points[0].distance_to(start), 130.0, 0.001,
+		"die Bewegung wird nicht gebremst")
+	assert_almost_eq(board.points[0].distance_to(target), 0.0, 0.001,
+		"der Punkt steht genau beim Zeiger")
 
 
 func test_hover_reports_the_cell_under_the_cursor() -> void:

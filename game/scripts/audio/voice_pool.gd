@@ -140,6 +140,24 @@ func ramp_down_drag_tone(voice: Voice, now: float) -> void:
 	voice.finish_at = now + GameConfig.RAMP_DOWN_FREQ_SEC
 
 
+## Kurzer Ton, dessen Frequenz sofort auf RAMP_DOWN_FREQ_HZ faellt. Wird beim
+## Verlust einer Zelle gespielt (wie der Rampdown des Drag-Tons im Original).
+func play_pitch_down(stream: AudioStreamWAV, freq: float, now: float) -> Voice:
+	var voice := _acquire()
+	voice.cell = -1
+	voice.is_drag_tone = false
+	voice.gain = 0.0
+	voice.freq = freq
+	var attack := GameConfig.VOICE_ATTACK_MS / 1000.0
+	var volume := GameConfig.PITCH_DOWN_VOLUME
+	voice.add_gain_segment(now, now + attack, 0.0, volume)
+	voice.add_gain_segment(now + attack, now + GameConfig.RAMP_DOWN_GAIN_SEC, volume, 0.0)
+	voice.add_freq_segment(now, now + GameConfig.RAMP_DOWN_FREQ_SEC, freq, GameConfig.RAMP_DOWN_FREQ_HZ)
+	voice.finish_at = now + GameConfig.RAMP_DOWN_GAIN_SEC + GameConfig.NOTE_TAIL
+	_play(voice, stream, freq)
+	return voice
+
+
 func stop_all() -> void:
 	for voice in _used.duplicate():
 		_finish(voice)

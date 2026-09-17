@@ -132,43 +132,6 @@ func test_change_steps_reproduce_the_spread_result() -> void:
 	assert_eq(Territories.color_change_steps(geometry, board.color_ids(), GameConfig.COLOR_PROPAGATION_ITERATIONS).size(), 0)
 
 
-func test_lost_cells_counts_cells_that_change_color() -> void:
-	# Die groessere Zelle wird zuerst verrechnet und nimmt die Farbe ihres
-	# Nachbarn an: hier verliert Spieler 1 seine grosse Zelle.
-	var board := BoardState.new()
-	board.points = PackedVector2Array([Vector2(200.0, 300.0), Vector2(100.0, 300.0)])
-	board.dummy_points = PackedVector2Array()
-	board.reset_colors()
-	board.set_cell_color(0, GameConfig.COLOR_PLAYER1)
-	board.set_cell_color(1, GameConfig.COLOR_PLAYER2)
-	var rect := Rect2(0, 0, GameConfig.BOARD_WIDTH, GameConfig.BOARD_HEIGHT)
-	var main := Voronoi.from_board(board, rect)
-	var ids := board.color_ids()
-	var geometry := CellGeometry.from_voronoi(main)
-
-	assert_eq(Territories.lost_cells(geometry, ids, GameConfig.COLOR_PROPAGATION_ITERATIONS, GameConfig.COLOR_PLAYER1), 1)
-	assert_eq(Territories.lost_cells(geometry, ids, GameConfig.COLOR_PROPAGATION_ITERATIONS, GameConfig.COLOR_PLAYER2), 0)
-	assert_eq(board.color_ids(), ids, "die Pruefung aendert den Zustand nicht")
-
-
-func test_lost_cells_can_ignore_cells() -> void:
-	# Eigene Nachbarzellen zaehlen beim Verlust-Schutz nicht mit.
-	var board := BoardState.new()
-	board.points = PackedVector2Array([Vector2(200.0, 300.0), Vector2(100.0, 300.0)])
-	board.dummy_points = PackedVector2Array()
-	board.reset_colors()
-	board.set_cell_color(0, GameConfig.COLOR_PLAYER1)
-	board.set_cell_color(1, GameConfig.COLOR_PLAYER2)
-	var rect := Rect2(0.0, 0.0, GameConfig.BOARD_WIDTH, GameConfig.BOARD_HEIGHT)
-	var geometry := CellGeometry.from_voronoi(Voronoi.from_board(board, rect))
-	var ids := board.color_ids()
-
-	assert_eq(Territories.lost_cells(geometry, ids, GameConfig.COLOR_PROPAGATION_ITERATIONS,
-		GameConfig.COLOR_PLAYER1, PackedInt32Array([0])), 0)
-	assert_eq(Territories.lost_cells(geometry, ids, GameConfig.COLOR_PROPAGATION_ITERATIONS,
-		GameConfig.COLOR_PLAYER1, PackedInt32Array([1])), 1)
-
-
 func test_largest_neighbor_by_color() -> void:
 	var config := _config(20)
 	var board := BoardState.new()

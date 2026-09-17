@@ -40,20 +40,25 @@ const NOTE_PLAY_ALPHA := 0.45
 ## Grenze zwischen zwei Zellen derselben Farbe.
 const FRAME_COLOR := "#999999"
 const SAME_COLOR_FRAME_WIDTH := 1.5
-## Grenze zwischen zwei verschiedenen Farben (Frontlinie).
-const FRONT_FRAME_COLOR := "#FFFFFF"
+## Grenze zwischen den Territorien: eine dicke Linie in der Teamfarbe, die als
+## durchgehende Kontur um das ganze Territorium laeuft und um ihre halbe
+## Breite nach innen versetzt ist.
 const FRONT_FRAME_WIDTH := 5.0
 const POINT_RADIUS := 5.0
 ## Punkt der Zelle unter dem Mauszeiger. Die Zelle selbst bekommt beim Hover
 ## eine weisse Umrandung in der Dicke der normalen Zellgrenze.
 const POINT_HOVER_COLOR := "#FFFFFF"
-## Territorium der erlaubten Bewegung beim Drag (gelb gestrichelt).
-const DRAG_LIMIT_COLOR := "#FFE100"
-const DRAG_LIMIT_FILL_COLOR := "#FFE1002E"
-const DRAG_LIMIT_WIDTH := 2.5
-const DRAG_LIMIT_DASH := 7.0
-## Rundungen der Kontur fuer die Darstellung.
-const DRAG_LIMIT_SMOOTH_ROUNDS := 1
+
+## Kurz vor der Uebernahme der gezogenen Zelle blinken die groesste
+## gegnerische Nachbarzelle und die Verbindungslinie. Das Tempo folgt dem
+## Flaechen-Vorsprung des Gegners: je naeher am Kipp-Punkt, desto schneller.
+const BLINK_COLOR := "#FFFFFF"
+const BLINK_ALPHA := 0.65
+## Ab diesem Anteil des Gegners am Nachbar-Gesamtgewicht beginnt das Blinken.
+const BLINK_WARN_RATIO := 0.34
+## Dauer einer Blinkphase (Sekunden) bei kleinster bzw. groesster Chance.
+const BLINK_SLOW_SEC := 0.75
+const BLINK_FAST_SEC := 0.12
 
 const COLOR_PROPAGATION_ITERATIONS := 12
 const BALANCE_TOLERANCE_RATIO := 0.05
@@ -80,6 +85,8 @@ const VOICE_SMOOTH_SEC := 0.05
 const RAMP_DOWN_FREQ_SEC := 0.4
 const RAMP_DOWN_FREQ_HZ := 20.0
 const RAMP_DOWN_GAIN_SEC := 1.0
+## Lautstaerke des Pitch-Downs beim Verlust einer Zelle.
+const PITCH_DOWN_VOLUME := 0.4
 
 const FREQ_HIGH := 1200.0
 const FREQ_LOW := 50.0
@@ -116,11 +123,9 @@ const FALLBACK_FREQ := 220.0
 @export var dummy_points: bool = true
 ## Flaechenzahlen in den Zellen anzeigen (beim Start aus).
 @export var show_cell_numbers: bool = false
-## Drag so begrenzen, dass keine eigene Zelle an den Gegner faellt.
-@export var prevent_loss: bool = true
 ## Abstand zwischen zwei Farbwechseln, wenn Zellen verloren gehen (ms).
 @export var loss_step_ms: float = 25.0
-## Radius, mit dem die Zellen an der Frontlinie abgerundet werden (Brettpixel).
+## Radius, mit dem die Territoriums-Grenze abgerundet wird (Brettpixel).
 @export var corner_radius: float = 8.0
 
 @export var random_seed: int = 0
@@ -146,13 +151,12 @@ const SLIDERS := [
 	{"key": "border_margin", "label": "Border Margin", "min": 5.0, "max": 50.0, "step": 1.0, "group": "Spiel"},
 	{"key": "weight_influence", "label": "Weight Influence", "min": 0.0, "max": 1.0, "step": 0.01, "group": "Spiel"},
 	{"key": "loss_step_ms", "label": "Verlust-Schritt (ms)", "min": 0.0, "max": 300.0, "step": 5.0, "group": "Spiel"},
-	{"key": "corner_radius", "label": "Front-Abrundung", "min": 0.0, "max": 30.0, "step": 0.5, "group": "Darstellung"},
+	{"key": "corner_radius", "label": "Zell-Abrundung", "min": 0.0, "max": 150.0, "step": 0.5, "group": "Darstellung"},
 ]
 
 const TOGGLES := [
 	{"key": "alternating_moves", "label": "Wechselnde Zuege", "group": "Spiel"},
 	{"key": "dummy_points", "label": "DummyPoints", "group": "Spiel"},
-	{"key": "prevent_loss", "label": "Verhindere Verlust", "group": "Spiel"},
 	{"key": "show_cell_numbers", "label": "Zahlen anzeigen", "group": "Darstellung"},
 ]
 
@@ -182,7 +186,6 @@ const DEFAULTS := {
 	"alternating_moves": true,
 	"dummy_points": true,
 	"show_cell_numbers": false,
-	"prevent_loss": true,
 }
 
 func _init() -> void:

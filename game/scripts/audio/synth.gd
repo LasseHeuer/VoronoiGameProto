@@ -222,6 +222,15 @@ func ramp_down_drag_tone(cell: int) -> void:
 	_drag_tones.erase(cell)
 
 
+## Pitch-Down beim Verlust einer Zelle: der Ton dieser Zelle faellt sofort auf
+## RAMP_DOWN_FREQ_HZ ab und blendet aus (wie der Rampdown im Original).
+func pitch_down(cell: int, plain: Voronoi) -> void:
+	if _pool == null:
+		return
+	var freq := cell_frequency(plain, cell) if plain != null else GameConfig.FALLBACK_FREQ
+	_pool.play_pitch_down(_pool.stream_for(config.waveform), freq, now())
+
+
 func stop_all() -> void:
 	if _pool == null:
 		return

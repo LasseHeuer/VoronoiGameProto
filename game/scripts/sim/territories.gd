@@ -180,22 +180,6 @@ static func color_change_steps(geometry: CellGeometry, ids: PackedByteArray, ite
 	return steps
 
 
-## Anzahl der Zellen mit `color`, die durch die Ausbreitung ihre Farbe
-## verlieren wuerden. Zellen in `ignored` zaehlen nicht mit (z. B. die eigenen
-## Nachbarn der gezogenen Zelle: zwischen ihnen kommt man durch, ohne die
-## Zelle zu verlieren). Der Zustand bleibt unveraendert.
-static func lost_cells(geometry: CellGeometry, ids: PackedByteArray, iterations: int, color: String, ignored := PackedInt32Array()) -> int:
-	var color_id := BoardState.color_id(color)
-	if color_id == 0:
-		return 0
-	var after := propagate_ids(geometry, ids.duplicate(), iterations)
-	var lost := 0
-	for i in range(mini(ids.size(), after.size())):
-		if ids[i] == color_id and after[i] != color_id and not ignored.has(i):
-			lost += 1
-	return lost
-
-
 ## Groesster sichtbarer Nachbar mit der Zielfarbe
 ## (getLargestNeighborByColor).
 static func largest_neighbor_by_color(board: BoardState, voronoi: Voronoi, cell_idx: int, target_color: String) -> Dictionary:
