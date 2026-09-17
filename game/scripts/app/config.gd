@@ -27,15 +27,33 @@ const POINT_SPREAD_FACTOR := 0.2
 const DUMMY_SPACING := 50.0
 const DUMMY_MARGIN := 30.0
 
+## Helligkeit der Zellfarbe (Prozent der Grundhelligkeit): die kleinste
+## Zelle ist am dunkelsten (LUM_MIN), die groesste am hellsten (LUM_MAX).
 const LUM_MIN := 20.0
 const LUM_MAX := 80.0
 const ENEMY_MIX_BASE := 0.5
 
-const HIGHLIGHT_FRAME_COLOR := "#FFFFFF"
-const HIGHLIGHT_FRAME_WIDTH := 6.0
+## Zellen, deren Ton gerade klingt: gelb ueberlegt. Die Deckkraft folgt der
+## Lautstaerke des Tons (siehe Synth.active_highlight_cells).
+const NOTE_PLAY_COLOR := "#FFE100"
+const NOTE_PLAY_ALPHA := 0.45
+## Grenze zwischen zwei Zellen derselben Farbe.
 const FRAME_COLOR := "#999999"
-const FRAME_WIDTH := 3.0
+const SAME_COLOR_FRAME_WIDTH := 1.5
+## Grenze zwischen zwei verschiedenen Farben (Frontlinie).
+const FRONT_FRAME_COLOR := "#FFFFFF"
+const FRONT_FRAME_WIDTH := 5.0
 const POINT_RADIUS := 5.0
+## Punkt der Zelle unter dem Mauszeiger. Die Zelle selbst bekommt beim Hover
+## eine weisse Umrandung in der Dicke der normalen Zellgrenze.
+const POINT_HOVER_COLOR := "#FFFFFF"
+## Territorium der erlaubten Bewegung beim Drag (gelb gestrichelt).
+const DRAG_LIMIT_COLOR := "#FFE100"
+const DRAG_LIMIT_FILL_COLOR := "#FFE1002E"
+const DRAG_LIMIT_WIDTH := 2.5
+const DRAG_LIMIT_DASH := 7.0
+## Rundungen der Kontur fuer die Darstellung.
+const DRAG_LIMIT_SMOOTH_ROUNDS := 1
 
 const COLOR_PROPAGATION_ITERATIONS := 12
 const BALANCE_TOLERANCE_RATIO := 0.05
@@ -54,6 +72,9 @@ const NOTE_TAIL := 0.1
 const DRAG_BFS_DEPTH := 2
 const DRAG_START_VOLUME := 1.0
 const DRAG_NEIGHBOR_VOLUME := 0.5
+## Hover-Toene: sehr leise und nur mit Mindestabstand (Windspiel).
+const HOVER_VOLUME := 0.1
+const HOVER_COOLDOWN_SEC := 0.09
 const VOICE_ATTACK_MS := 60.0
 const VOICE_SMOOTH_SEC := 0.05
 const RAMP_DOWN_FREQ_SEC := 0.4
@@ -93,34 +114,51 @@ const FALLBACK_FREQ := 220.0
 
 @export var alternating_moves: bool = true
 @export var dummy_points: bool = true
+## Flaechenzahlen in den Zellen anzeigen (beim Start aus).
+@export var show_cell_numbers: bool = false
+## Drag so begrenzen, dass keine eigene Zelle an den Gegner faellt.
+@export var prevent_loss: bool = true
+## Abstand zwischen zwei Farbwechseln, wenn Zellen verloren gehen (ms).
+@export var loss_step_ms: float = 25.0
+## Radius, mit dem die Zellen an der Frontlinie abgerundet werden (Brettpixel).
+@export var corner_radius: float = 8.0
 
 @export var random_seed: int = 0
 
 # ------------------------------------------------------------- Schema ------
+## Reihenfolge der Gruppen im Einstellungsmenue.
+const SETTING_GROUPS := ["Klang", "Spiel", "Darstellung"]
+
 const SLIDERS := [
-	{"key": "attack", "label": "Attack", "min": 0.0, "max": 3.0, "step": 0.01},
-	{"key": "decay", "label": "Decay", "min": 0.0, "max": 3.0, "step": 0.01},
-	{"key": "sustain", "label": "Sustain", "min": 0.0, "max": 1.0, "step": 0.01},
-	{"key": "release", "label": "Release", "min": 0.0, "max": 3.0, "step": 0.01},
-	{"key": "cutoff", "label": "Synth Cutoff", "min": 100.0, "max": 1000.0, "step": 1.0},
-	{"key": "drag_tone_volume", "label": "Dragtone Volume", "min": 0.0, "max": 1.0, "step": 0.01},
-	{"key": "drag_neighbor_factor", "label": "Dragtone Neighbor Factor", "min": 0.0, "max": 1.0, "step": 0.01},
-	{"key": "freq_threshold", "label": "Frequenz-Thr", "min": 0.0, "max": 1.0, "step": 0.01},
-	{"key": "spread_time", "label": "Neighbor Spread Tone Delay", "min": 0.0, "max": 1.0, "step": 0.001},
-	{"key": "spread_depth", "label": "Neighbor Cell Depth", "min": 1, "max": 6, "step": 1, "is_int": true},
-	{"key": "cell_count", "label": "Number of Cells", "min": 2, "max": 100, "step": 1, "is_int": true},
-	{"key": "push_factor", "label": "Push Factor", "min": 0.0, "max": 1.0, "step": 0.01},
-	{"key": "push_radius", "label": "Push Radius", "min": 5.0, "max": 150.0, "step": 1.0},
-	{"key": "border_margin", "label": "Border Margin", "min": 5.0, "max": 50.0, "step": 1.0},
-	{"key": "weight_influence", "label": "Weight Influence", "min": 0.0, "max": 1.0, "step": 0.01},
+	{"key": "attack", "label": "Attack", "min": 0.0, "max": 3.0, "step": 0.01, "group": "Klang"},
+	{"key": "decay", "label": "Decay", "min": 0.0, "max": 3.0, "step": 0.01, "group": "Klang"},
+	{"key": "sustain", "label": "Sustain", "min": 0.0, "max": 1.0, "step": 0.01, "group": "Klang"},
+	{"key": "release", "label": "Release", "min": 0.0, "max": 3.0, "step": 0.01, "group": "Klang"},
+	{"key": "cutoff", "label": "Synth Cutoff", "min": 100.0, "max": 1000.0, "step": 1.0, "group": "Klang"},
+	{"key": "drag_tone_volume", "label": "Dragtone Volume", "min": 0.0, "max": 1.0, "step": 0.01, "group": "Klang"},
+	{"key": "drag_neighbor_factor", "label": "Dragtone Neighbor Factor", "min": 0.0, "max": 1.0, "step": 0.01, "group": "Klang"},
+	{"key": "freq_threshold", "label": "Frequenz-Thr", "min": 0.0, "max": 1.0, "step": 0.01, "group": "Klang"},
+	{"key": "spread_time", "label": "Neighbor Spread Tone Delay", "min": 0.0, "max": 1.0, "step": 0.001, "group": "Klang"},
+	{"key": "spread_depth", "label": "Neighbor Cell Depth", "min": 1, "max": 6, "step": 1, "is_int": true, "group": "Klang"},
+	{"key": "cell_count", "label": "Number of Cells", "min": 2, "max": 100, "step": 1, "is_int": true, "group": "Spiel"},
+	{"key": "push_factor", "label": "Push Factor", "min": 0.0, "max": 1.0, "step": 0.01, "group": "Spiel"},
+	{"key": "push_radius", "label": "Push Radius", "min": 5.0, "max": 150.0, "step": 1.0, "group": "Spiel"},
+	{"key": "border_margin", "label": "Border Margin", "min": 5.0, "max": 50.0, "step": 1.0, "group": "Spiel"},
+	{"key": "weight_influence", "label": "Weight Influence", "min": 0.0, "max": 1.0, "step": 0.01, "group": "Spiel"},
+	{"key": "loss_step_ms", "label": "Verlust-Schritt (ms)", "min": 0.0, "max": 300.0, "step": 5.0, "group": "Spiel"},
+	{"key": "corner_radius", "label": "Front-Abrundung", "min": 0.0, "max": 30.0, "step": 0.5, "group": "Darstellung"},
 ]
 
 const TOGGLES := [
-	{"key": "alternating_moves", "label": "Wechselnde Zuege"},
-	{"key": "dummy_points", "label": "DummyPoints"},
+	{"key": "alternating_moves", "label": "Wechselnde Zuege", "group": "Spiel"},
+	{"key": "dummy_points", "label": "DummyPoints", "group": "Spiel"},
+	{"key": "prevent_loss", "label": "Verhindere Verlust", "group": "Spiel"},
+	{"key": "show_cell_numbers", "label": "Zahlen anzeigen", "group": "Darstellung"},
 ]
 
 const WAVEFORMS := ["triangle", "sine", "square", "sawtooth"]
+## Gruppe der Wellenform-Auswahl im Einstellungsmenue.
+const WAVEFORM_GROUP := "Klang"
 
 const DEFAULTS := {
 	"waveform": "triangle",
@@ -139,8 +177,12 @@ const DEFAULTS := {
 	"push_radius": 40.0,
 	"border_margin": 25.0,
 	"weight_influence": 0.95,
+	"loss_step_ms": 25.0,
+	"corner_radius": 8.0,
 	"alternating_moves": true,
 	"dummy_points": true,
+	"show_cell_numbers": false,
+	"prevent_loss": true,
 }
 
 func _init() -> void:

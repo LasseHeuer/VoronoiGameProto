@@ -21,16 +21,19 @@ var cell_colors := PackedStringArray()
 ## Aktuell ziehender Spieler (Farbe).
 var active_color := ""
 
-var score_p1 := 0.0
-var score_p2 := 0.0
-
-## Visualisierungsdaten fuer die Drag-Linien (von input/board_input.gd
-## geschrieben, von view/board_renderer.gd gelesen).
+## Visualisierungsdaten fuer Zeiger und Drag-Linien (von
+## input/board_input.gd geschrieben, von view/board_renderer.gd gelesen).
+var hovered_index := -1
 var dragged_index := -1
 var drag_same_neighbor := -1
 var drag_same_neighbor_area := 0.0
 var drag_opponent_neighbor := -1
 var drag_opponent_neighbor_area := 0.0
+
+## Territorium der erlaubten Bewegung beim Drag: geschlossene Kontur um die
+## gezogene Zelle (nur bei "Verhindere Verlust").
+var drag_limit_active := false
+var drag_limit_region := PackedVector2Array()
 
 
 func reset_colors() -> void:
@@ -105,3 +108,5 @@ func clear_drag_visuals() -> void:
 	drag_same_neighbor_area = 0.0
 	drag_opponent_neighbor = -1
 	drag_opponent_neighbor_area = 0.0
+	drag_limit_active = false
+	drag_limit_region = PackedVector2Array()

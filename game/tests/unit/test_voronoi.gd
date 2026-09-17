@@ -93,6 +93,43 @@ func test_shared_edge_of_touching_cells_is_measured() -> void:
 	assert_almost_eq(voronoi.visible_common_edge_length(0, 1), 1800.0, 0.5)
 
 
+func test_edge_neighbors_are_symmetric() -> void:
+	var board := _make_board(30, 313)
+	var main := Voronoi.from_board(board, RECT)
+	for i in range(main.cells.size()):
+		var poly := main.cell_polygon(i)
+		var neighbors := main.edge_neighbors(i)
+		assert_eq(neighbors.size(), poly.size(), "je Kante eine Nachbarangabe")
+		for k in range(neighbors.size()):
+			var nb := neighbors[k]
+			if nb < 0:
+				continue
+			assert_ne(nb, i, "eine Zelle ist nicht ihr eigener Nachbar")
+			assert_lt(nb, main.real_count, "Nachbarn sind echte Zellen, keine Dummy-Punkte")
+			var shared_length := main.visible_common_edge_length(i, nb)
+			assert_gt(shared_length, 0.0, "die gemeinsame Kante hat eine Laenge (%d/%d)" % [i, nb])
+			assert_true(main.edge_neighbors(nb).has(i),
+				"die Zuordnung ist symmetrisch (%d/%d)" % [i, nb])
+
+
+func test_board_border_edges_have_no_neighbor() -> void:
+	var board := _make_board(12, 909)
+	var main := Voronoi.from_board(board, RECT)
+	for i in range(main.cells.size()):
+		var poly := main.cell_polygon(i)
+		var neighbors := main.edge_neighbors(i)
+		for k in range(poly.size()):
+			if not (_on_board_border(poly[k]) and _on_board_border(poly[(k + 1) % poly.size()])):
+				continue
+			assert_lt(neighbors[k], 0,
+				"Brettrandkante hat keinen Nachbarn (Zelle %d, Kante %d)" % [i, k])
+
+
+func _on_board_border(point: Vector2) -> bool:
+	return absf(point.x - RECT.position.x) < 0.1 or absf(point.x - RECT.end.x) < 0.1 \
+		or absf(point.y - RECT.position.y) < 0.1 or absf(point.y - RECT.end.y) < 0.1
+
+
 func test_fan_construction_matches_halfplane_construction() -> void:
 	var board := _make_board(25, 2024)
 	var main := Voronoi.from_board(board, RECT)

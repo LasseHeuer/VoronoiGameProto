@@ -197,6 +197,39 @@ static func clip_half_plane(poly: PackedVector2Array, n: Vector2, d: float) -> P
 	out.resize(written)
 	return out
 
+## Groesste Flaeche aus einer Liste von Polygonen (z. B. nach dem Verschmelzen
+## mehrerer Zellpolygone, wo Randstuecke uebrig bleiben koennen).
+static func largest_polygon(polygons: Array) -> PackedVector2Array:
+	var best := PackedVector2Array()
+	var best_area := 0.0
+	for poly in polygons:
+		var area := polygon_area(poly)
+		if area > best_area:
+			best_area = area
+			best = poly
+	return best
+
+
+## Rundet ein geschlossenes Polygon (Chaikin): jede Kante wird durch zwei
+## Punkte bei einem Viertel und drei Vierteln ersetzt. Die Kontur wird dabei
+## leicht kleiner, bleibt aber innerhalb der alten Eckpunkte.
+static func smooth_closed_polygon(poly: PackedVector2Array, rounds := 1) -> PackedVector2Array:
+	var out := poly
+	for round_index in range(maxi(rounds, 0)):
+		var count := out.size()
+		if count < 3:
+			return out
+		var smoothed := PackedVector2Array()
+		smoothed.resize(count * 2)
+		for i in range(count):
+			var p := out[i]
+			var q := out[(i + 1) % count]
+			smoothed[i * 2] = p.lerp(q, 0.25)
+			smoothed[i * 2 + 1] = p.lerp(q, 0.75)
+		out = smoothed
+	return out
+
+
 ## Prueft, ob ein Polygon konvex und nicht entartet ist. Die
 ## Umkreismittelpunkt-Konstruktion kann bei fast entarteten Dreiecken
 ## Selbstschnitte erzeugen; solche Faelle werden damit erkannt.

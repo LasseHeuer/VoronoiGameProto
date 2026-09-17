@@ -76,8 +76,9 @@ func stream_for(waveform: String) -> AudioStreamWAV:
 	return _streams.values()[0]
 
 
-## Geplanter Ton mit ADSR-Huellkurve (scheduleNoteForCell).
-func start_note(stream: AudioStreamWAV, freq: float, config: GameConfig, now: float) -> Voice:
+## Geplanter Ton mit ADSR-Huellkurve (scheduleNoteForCell). volume skaliert
+## die Huellkurve (1.0 = volle Lautstaerke wie im Original).
+func start_note(stream: AudioStreamWAV, freq: float, config: GameConfig, now: float, volume := 1.0) -> Voice:
 	var voice := _acquire()
 	voice.cell = -1
 	voice.is_drag_tone = false
@@ -87,9 +88,9 @@ func start_note(stream: AudioStreamWAV, freq: float, config: GameConfig, now: fl
 	var decay := config.decay
 	var sustain := config.sustain
 	var hold_end := now + GameConfig.NOTE_DURATION
-	voice.add_gain_segment(now, now + attack, 0.0, 1.0)
-	voice.add_gain_segment(now + attack, now + attack + decay, 1.0, sustain)
-	voice.add_gain_segment(now + attack + decay, hold_end + config.release, sustain, 0.0)
+	voice.add_gain_segment(now, now + attack, 0.0, volume)
+	voice.add_gain_segment(now + attack, now + attack + decay, volume, sustain * volume)
+	voice.add_gain_segment(now + attack + decay, hold_end + config.release, sustain * volume, 0.0)
 	voice.finish_at = hold_end + config.release + GameConfig.NOTE_TAIL
 	_play(voice, stream, freq)
 	return voice

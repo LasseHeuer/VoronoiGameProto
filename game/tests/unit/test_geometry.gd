@@ -83,6 +83,36 @@ func test_simplify_polygon_merges_nearly_identical_points() -> void:
 	assert_eq(simplified.size(), 4)
 
 
+func test_smooth_closed_polygon_rounds_the_corners() -> void:
+	var smoothed := BoardGeometry.smooth_closed_polygon(_square(), 1)
+	assert_eq(smoothed.size(), 8, "jede Kante wird durch zwei Punkte ersetzt")
+	assert_lt(BoardGeometry.polygon_area(smoothed), 100.0, "die Ecken werden abgeschnitten")
+	assert_gt(BoardGeometry.polygon_area(smoothed), 50.0, "die Flaeche bleibt weitgehend erhalten")
+
+
+func test_smooth_closed_polygon_keeps_degenerate_input() -> void:
+	assert_eq(BoardGeometry.smooth_closed_polygon(PackedVector2Array(), 1).size(), 0)
+	var line := PackedVector2Array([Vector2(0.0, 0.0), Vector2(1.0, 0.0)])
+	assert_eq(BoardGeometry.smooth_closed_polygon(line, 2).size(), 2)
+	assert_eq(BoardGeometry.smooth_closed_polygon(_square(), 0).size(), 4, "ohne Runden bleibt alles")
+
+
+func test_largest_polygon_picks_the_biggest_area() -> void:
+	var small := PackedVector2Array([
+		Vector2(0.0, 0.0), Vector2(2.0, 0.0), Vector2(2.0, 2.0), Vector2(0.0, 2.0),
+	])
+	var large := PackedVector2Array([
+		Vector2(0.0, 0.0), Vector2(10.0, 0.0), Vector2(10.0, 10.0), Vector2(0.0, 10.0),
+	])
+	var middle := PackedVector2Array([
+		Vector2(0.0, 0.0), Vector2(5.0, 0.0), Vector2(5.0, 5.0), Vector2(0.0, 5.0),
+	])
+	var picked := BoardGeometry.largest_polygon([small, large, middle])
+	assert_almost_eq(BoardGeometry.polygon_area(picked), 100.0, 0.0001)
+	assert_eq(BoardGeometry.largest_polygon([]).size(), 0)
+	assert_eq(BoardGeometry.largest_polygon([PackedVector2Array()]).size(), 0)
+
+
 func test_is_convex() -> void:
 	assert_true(BoardGeometry.is_convex(_square()))
 	var concave := PackedVector2Array([

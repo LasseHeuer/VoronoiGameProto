@@ -66,31 +66,126 @@ func test_mix_color_with_grey_darkens_saturated_color() -> void:
 	assert_gt(rgb[0] + rgb[1] + rgb[2], 0, "Farbe bleibt sichtbar")
 
 
-func test_score_hud_shows_numbers_and_bar_widths() -> void:
+func test_cell_color_gets_lighter_with_the_cell_area() -> void:
+	var small := _hsl_of(BoardRenderer.color_for_area(GameConfig.COLOR_PLAYER1, 0.0))
+	var large := _hsl_of(BoardRenderer.color_for_area(GameConfig.COLOR_PLAYER1, 1.0))
+	assert_lt(small[2], large[2], "die kleinste Zelle ist dunkler als die groesste")
+	assert_almost_eq(small[0], large[0], 0.01, "Farbton bleibt gleich")
+	assert_almost_eq(small[1], large[1], 0.01, "Saettigung bleibt gleich")
+
+	var middle := _hsl_of(BoardRenderer.color_for_area(GameConfig.COLOR_PLAYER1, 0.5))
+	assert_between(middle[2], small[2], large[2], "dazwischen liegt die Helligkeit dazwischen")
+
+
+func test_cell_color_without_base_color_is_grey() -> void:
+	var middle_lum := (GameConfig.LUM_MIN + GameConfig.LUM_MAX) * 0.5
+	assert_eq(BoardRenderer.color_for_area("", 0.5), BoardRenderer.grey_color(middle_lum))
+
+
+func _hsl_of(hex_color: String) -> Array:
+	var rgb := BoardRenderer.hex_to_rgb(hex_color)
+	return BoardRenderer.rgb_to_hsl(rgb[0], rgb[1], rgb[2])
+
+
+## Quadrat, bei dem die ersten beiden Kanten Frontkanten sind: die Ecke
+## zwischen ihnen zeigt nach aussen und wird abgerundet.
+func _square_with_front_corner() -> Array:
+	var poly := PackedVector2Array([
+		Vector2(0.0, 0.0), Vector2(100.0, 0.0), Vector2(100.0, 100.0), Vector2(0.0, 100.0)])
+	var neighbors := PackedInt32Array([9, 9, 8, 8])
+	var is_front := [true, true, false, false]
+	return [poly, neighbors, is_front]
+
+
+func test_front_corner_is_rounded_with_the_configured_radius() -> void:
+	var setup := _square_with_front_corner()
+	var renderer := BoardRenderer.new()
+	add_child_autofree(renderer)
+
+	var corners := renderer._front_corners(setup[0], setup[2], setup[1], 12.0)
+	assert_eq(corners.size(), 1, "nur die konvexe Frontecke wird abgerundet")
+	assert_true(corners.has(1))
+	var corner: Dictionary = corners[1]
+	assert_almost_eq(float(corner["trim"]), 12.0, 0.0001)
+	var arc: PackedVector2Array = corner["arc"]
+	assert_gte(arc.size(), 4, "der Bogen ist aufgeloest")
+	assert_almost_eq(arc[0].distance_to(Vector2(88.0, 0.0)), 0.0, 0.0001, "Bogen beginnt auf der Kante")
+	assert_almost_eq(arc[arc.size() - 1].distance_to(Vector2(100.0, 12.0)), 0.0, 0.0001, "Bogen endet auf der Kante")
+	assert_lt(arc[arc.size() / 2].distance_to(Vector2(100.0, 0.0)), 12.0, "der Bogen liegt in der Ecke")
+
+
+func test_front_corner_radius_zero_keeps_the_sharp_corner() -> void:
+	var setup := _square_with_front_corner()
+	var renderer := BoardRenderer.new()
+	add_child_autofree(renderer)
+
+	assert_eq(renderer._front_corners(setup[0], setup[2], setup[1], 0.0).size(), 0)
+
+
+func test_concave_front_corner_is_not_rounded() -> void:
+	# Flaeche mit einer nach innen zeigenden Ecke (Index 3): auch wenn dort
+	# zwei Frontkanten zusammentreffen, wird nicht abgerundet.
+	var poly := PackedVector2Array([
+		Vector2(0.0, 0.0), Vector2(100.0, 0.0), Vector2(100.0, 100.0),
+		Vector2(50.0, 40.0), Vector2(0.0, 100.0)])
+	var neighbors := PackedInt32Array([9, 9, 9, 9, 9])
+	var is_front := [true, true, true, true, true]
+	var renderer := BoardRenderer.new()
+	add_child_autofree(renderer)
+
+	var corners := renderer._front_corners(poly, is_front, neighbors, 10.0)
+	assert_eq(corners.size(), 4, "nur die konvexen Ecken werden abgerundet")
+	assert_false(corners.has(3), "die einspringende Ecke bleibt spitz")
+	assert_true(corners.has(1))
+
+
+func test_cell_fill_colors_cover_every_cell() -> void:
 	var board := BoardState.new()
-	board.score_p1 = 3.0
-	board.score_p2 = 1.0
-	var hud: ScoreHud = load("res://scenes/ScoreHud.tscn").instantiate()
-	add_child_autofree(hud)
-	hud.update_scores(board)
+	board.points = PackedVector2Array([Vector2(300.0, 300.0), Vector2(600.0, 300.0)])
+	board.dummy_points = PackedVector2Array()
+	board.reset_colors()
+	board.set_cell_color(0, GameConfig.COLOR_PLAYER1)
+	board.set_cell_color(1, GameConfig.COLOR_PLAYER2)
+	var voronoi := Voronoi.from_points(board.points, Rect2(0.0, 0.0, 900.0, 600.0))
+	var renderer := BoardRenderer.new()
+	add_child_autofree(renderer)
+	renderer.set_board_state(board, GameConfig.new(), voronoi)
 
-	var label: Label = hud.get_node("ScoreLabel")
-	assert_eq(label.text, "Player1: 3 Player2: 1")
-	var bar1: ColorRect = hud.get_node("BarBackground/Bar1")
-	var bar2: ColorRect = hud.get_node("BarBackground/Bar2")
-	assert_almost_eq(bar1.size.x, ScoreHud.BAR_WIDTH * 0.75, 0.01)
-	assert_almost_eq(bar2.size.x, ScoreHud.BAR_WIDTH * 0.25, 0.01)
-	assert_almost_eq(bar2.position.x, bar1.size.x, 0.01, "zweiter Balken schliesst an")
+	var colors := renderer._cell_fill_colors(voronoi.cells.size())
+	assert_eq(colors.size(), 2)
+	for color in colors:
+		assert_eq(color.length(), 7)
+		assert_true(color.begins_with("#"))
+	assert_ne(colors[0], colors[1], "die beiden Farben bleiben unterscheidbar")
 
 
-func test_score_hud_without_points_has_empty_bars() -> void:
+## Zeichnet ein Brett mit Frontlinien, Abrundung, Hover und Territorium: der
+## Durchlauf darf keine Fehler erzeugen (z. B. ungueltige Polygone in den
+## abgerundeten Ecken).
+func test_drawing_a_full_frame_runs_without_errors() -> void:
+	var config := GameConfig.new()
+	config.corner_radius = 14.0
 	var board := BoardState.new()
-	var hud: ScoreHud = load("res://scenes/ScoreHud.tscn").instantiate()
-	add_child_autofree(hud)
-	hud.update_scores(board)
-	var bar1: ColorRect = hud.get_node("BarBackground/Bar1")
-	var bar2: ColorRect = hud.get_node("BarBackground/Bar2")
-	assert_eq(bar1.size.x, 0.0)
-	assert_eq(bar2.size.x, 0.0)
-	var label: Label = hud.get_node("ScoreLabel")
-	assert_eq(label.text, "Player1: 0 Player2: 0")
+	board.points = PackedVector2Array([
+		Vector2(200.0, 300.0), Vector2(450.0, 200.0),
+		Vector2(430.0, 430.0), Vector2(700.0, 300.0)])
+	board.dummy_points = PackedVector2Array()
+	board.reset_colors()
+	board.set_cell_color(0, GameConfig.COLOR_PLAYER1)
+	board.set_cell_color(1, GameConfig.COLOR_PLAYER1)
+	board.set_cell_color(2, GameConfig.COLOR_PLAYER1)
+	board.set_cell_color(3, GameConfig.COLOR_PLAYER2)
+	board.hovered_index = 1
+	board.drag_limit_active = true
+	board.drag_limit_region = PackedVector2Array([
+		Vector2(120.0, 120.0), Vector2(640.0, 160.0), Vector2(620.0, 500.0), Vector2(140.0, 470.0)])
+	var voronoi := Voronoi.from_board(board, Rect2(0.0, 0.0, 900.0, 600.0))
+	var renderer := BoardRenderer.new()
+	add_child_autofree(renderer)
+	renderer.set_board_state(board, config, voronoi)
+	renderer.highlight_cells = {0: 0.5, 3: 1.0}
+
+	renderer.queue_redraw()
+	await wait_process_frames(3)
+
+	assert_true(true, "das Zeichnen laeuft ohne Fehler durch")

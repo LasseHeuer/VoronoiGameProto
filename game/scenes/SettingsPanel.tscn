@@ -4,28 +4,50 @@
 
 [node name="SettingsPanel" type="PanelContainer"]
 visible = false
-offset_right = 420.0
-offset_bottom = 560.0
+anchors_preset = 9
+anchor_bottom = 1.0
+offset_right = 430.0
+grow_vertical = 2
 script = ExtResource("1_panel")
 
 [node name="Margin" type="MarginContainer" parent="."]
 layout_mode = 2
-theme_override_constants/margin_left = 12
-theme_override_constants/margin_top = 8
-theme_override_constants/margin_right = 12
-theme_override_constants/margin_bottom = 8
+theme_override_constants/margin_left = 18
+theme_override_constants/margin_top = 14
+theme_override_constants/margin_right = 18
+theme_override_constants/margin_bottom = 16
 
 [node name="Layout" type="VBoxContainer" parent="Margin"]
 layout_mode = 2
+theme_override_constants/separation = 12
 
-[node name="HideButton" type="Button" parent="Margin/Layout"]
+[node name="Header" type="HBoxContainer" parent="Margin/Layout"]
 layout_mode = 2
-text = "Einstellungen ausblenden"
+theme_override_constants/separation = 8
+
+[node name="Title" type="Label" parent="Margin/Layout/Header"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 1
+text = "Einstellungen"
+
+[node name="CloseButton" type="Button" parent="Margin/Layout/Header"]
+custom_minimum_size = Vector2(32, 32)
+layout_mode = 2
+size_flags_vertical = 4
+tooltip_text = "Ausblenden"
+text = "×"
 
 [node name="Scroll" type="ScrollContainer" parent="Margin/Layout"]
-custom_minimum_size = Vector2(380, 500)
 layout_mode = 2
+size_flags_vertical = 3
 
 [node name="Rows" type="VBoxContainer" parent="Margin/Layout/Scroll"]
 layout_mode = 2
 size_flags_horizontal = 3
+theme_override_constants/separation = 4
+
+[node name="RestartButton" type="Button" parent="Margin/Layout"]
+custom_minimum_size = Vector2(0, 36)
+layout_mode = 2
+text = "Neu starten"

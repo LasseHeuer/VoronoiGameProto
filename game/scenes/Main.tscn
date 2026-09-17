@@ -4,8 +4,8 @@
 [ext_resource type="Script" path="res://scripts/view/board_renderer.gd" id="2_view"]
 [ext_resource type="Script" path="res://scripts/input/board_input.gd" id="3_input"]
 [ext_resource type="Script" path="res://scripts/audio/synth.gd" id="4_synth"]
-[ext_resource type="PackedScene" path="res://scenes/ScoreHud.tscn" id="5_hud"]
 [ext_resource type="PackedScene" path="res://scenes/SettingsPanel.tscn" id="6_panel"]
+[ext_resource type="Script" path="res://scripts/ui/gear_button.gd" id="7_gear"]
 
 [node name="Main" type="Node"]
 script = ExtResource("1_app")
@@ -19,13 +19,13 @@ script = ExtResource("3_input")
 [node name="Audio" type="Node" parent="."]
 script = ExtResource("4_synth")
 
-[node name="ScoreHud" parent="." instance=ExtResource("5_hud")]
-
 [node name="ShowSettingsButton" type="Button" parent="."]
-offset_left = 370.0
-offset_top = 6.0
-offset_right = 520.0
+offset_left = 8.0
+offset_top = 8.0
+offset_right = 34.0
 offset_bottom = 34.0
-text = "Einstellungen"
+tooltip_text = "Einstellungen"
+flat = true
+script = ExtResource("7_gear")
 
 [node name="SettingsPanel" parent="." instance=ExtResource("6_panel")]

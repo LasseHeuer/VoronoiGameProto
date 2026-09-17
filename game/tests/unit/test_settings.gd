@@ -47,6 +47,18 @@ func test_defaults_match_the_reference_values() -> void:
 	assert_true(config.dummy_points)
 
 
+func test_cell_numbers_are_hidden_by_default() -> void:
+	var config := GameConfig.new()
+	assert_false(config.show_cell_numbers, "die Flaechenzahlen starten ausgeblendet")
+	assert_true(GameConfig.DEFAULTS.has("show_cell_numbers"))
+
+
+func test_loss_protection_defaults() -> void:
+	var config := GameConfig.new()
+	assert_true(config.prevent_loss, "der Verlust-Schutz ist beim Start aktiv")
+	assert_almost_eq(config.loss_step_ms, 25.0, 0.0001, "Verlust-Schritt startet bei 25 ms")
+
+
 func test_reset_to_defaults() -> void:
 	var config := GameConfig.new()
 	config.attack = 2.5
@@ -125,24 +137,26 @@ func test_settings_panel_builds_rows_and_writes_back_to_config() -> void:
 	add_child_autofree(panel)
 	panel.setup(config)
 
-	var rows := panel._rows.get_children()
-	# Wellenform + alle Slider + alle Toggles + Neustart
-	assert_eq(rows.size(), 1 + GameConfig.SLIDERS.size() + GameConfig.TOGGLES.size() + 1)
-
 	var changed: Array = []
 	panel.value_changed.connect(func(key: String, _value: Variant): changed.append(key))
 
-	for i in range(GameConfig.SLIDERS.size()):
-		var entry: Dictionary = GameConfig.SLIDERS[i]
-		var slider: HSlider = rows[i + 1].get_child(1)
+	# Jede Gruppe bekommt einen Abschnittstitel, dazu Wave und alle Regler
+	# und Schalter aus dem Schema.
+	assert_eq(panel._rows.get_children().size(),
+		GameConfig.SETTING_GROUPS.size() + 1 + GameConfig.SLIDERS.size() + GameConfig.TOGGLES.size())
+	assert_eq(panel._controls.size(), 1 + GameConfig.SLIDERS.size() + GameConfig.TOGGLES.size())
+
+	for entry in GameConfig.SLIDERS:
+		var key: String = entry["key"]
+		var slider: HSlider = panel._controls[key]
 		assert_almost_eq(slider.min_value, float(entry["min"]), 0.0001)
 		assert_almost_eq(slider.max_value, float(entry["max"]), 0.0001)
 		slider.value = slider.max_value
-		var stored: Variant = config.get(entry["key"])
+		var stored: Variant = config.get(key)
 		if entry.get("is_int", false):
-			assert_eq(int(stored), int(entry["max"]), entry["key"])
+			assert_eq(int(stored), int(entry["max"]), key)
 		else:
-			assert_almost_eq(float(stored), float(entry["max"]), 0.0001, entry["key"])
+			assert_almost_eq(float(stored), float(entry["max"]), 0.0001, key)
 	assert_eq(changed.size(), GameConfig.SLIDERS.size(), "jede Aenderung meldet sich")
 
 
@@ -156,18 +170,23 @@ func test_settings_panel_toggles_and_restart_button() -> void:
 	panel.restart_requested.connect(func(): requested.append(true))
 	panel.hide_requested.connect(func(): requested.append("hide"))
 
-	var rows := panel._rows.get_children()
-	var toggle_offset := 1 + GameConfig.SLIDERS.size()
-	for i in range(GameConfig.TOGGLES.size()):
-		var entry: Dictionary = GameConfig.TOGGLES[i]
-		var check: CheckBox = rows[toggle_offset + i].get_child(1)
+	for entry in GameConfig.TOGGLES:
+		var key: String = entry["key"]
+		var check: CheckBox = panel._controls[key]
 		check.button_pressed = not check.button_pressed
-		assert_eq(bool(config.get(entry["key"])), check.button_pressed, entry["key"])
+		assert_eq(bool(config.get(key)), check.button_pressed, key)
 
-	var restart_button: Button = rows[rows.size() - 1].get_child(0)
+	var restart_button: Button = panel.get_node("Margin/Layout/RestartButton")
 	restart_button.pressed.emit()
 	assert_eq(requested.size(), 1)
 
-	var hide_button: Button = panel.get_node("Margin/Layout/HideButton")
-	hide_button.pressed.emit()
+	var close_button: Button = panel.get_node("Margin/Layout/Header/CloseButton")
+	close_button.pressed.emit()
 	assert_eq(requested.size(), 2)
+
+
+func test_settings_panel_spans_the_full_window_height() -> void:
+	var panel: SettingsPanel = load("res://scenes/SettingsPanel.tscn").instantiate()
+	add_child_autofree(panel)
+	assert_eq(panel.anchor_top, 0.0)
+	assert_eq(panel.anchor_bottom, 1.0, "das Menue geht ueber die ganze Hoehe")

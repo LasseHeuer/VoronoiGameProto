@@ -30,6 +30,7 @@ var real_count := 0
 
 var _delaunay: Delaunay
 var _edge_lengths := {}
+var _edge_neighbors := {}
 
 
 static func build(delaunay: Delaunay, bounds: Rect2, min_edge := 5.0, real_count := -1, with_visible_neighbors := true) -> Voronoi:
@@ -115,6 +116,43 @@ func visible_neighbors_of(index: int) -> PackedInt32Array:
 	if index < 0 or index >= visible_neighbors.size():
 		return PackedInt32Array()
 	return visible_neighbors[index]
+
+
+## Fuer jede Kante der Zelle die Zelle jenseits der Kante, oder -1 am
+## Brettrand bzw. zu einem Dummy-Punkt. Eine Kante gehoert genau dann zu
+## einem Nachbarn, wenn beide Endpunkte auf der Mittelsenkrechten liegen
+## (gleiche Toleranz wie bei der Kantenmessung). Nur der Mittelpunkt zu
+## pruefen wuerde bei kokreisförmigen Punkten auch Nachbarn treffen, die die
+## Zelle nur in einer Ecke beruehren. Wird pro Zelle einmal berechnet.
+func edge_neighbors(index: int) -> PackedInt32Array:
+	if _edge_neighbors.has(index):
+		var cached: PackedInt32Array = _edge_neighbors[index]
+		return cached
+	if index < 0 or index >= real_count:
+		return PackedInt32Array()
+	var poly := cell_polygon(index)
+	var out := PackedInt32Array()
+	out.resize(poly.size())
+	for k in range(poly.size()):
+		var p1 := poly[k]
+		var p2 := poly[(k + 1) % poly.size()]
+		var best := -1
+		var best_distance := INF
+		for j in _delaunay.neighbors(index):
+			if j >= real_count:
+				continue
+			var diff := points[j] - points[index]
+			if diff.length_squared() < 1e-12:
+				continue
+			var normal := diff / diff.length()
+			var mid := (points[index] + points[j]) * 0.5
+			var distance := maxf(absf(normal.dot(p1 - mid)), absf(normal.dot(p2 - mid)))
+			if distance <= LINETOL and distance < best_distance:
+				best_distance = distance
+				best = j
+		out[k] = best
+	_edge_neighbors[index] = out
+	return out
 
 
 func _build_cells() -> void:

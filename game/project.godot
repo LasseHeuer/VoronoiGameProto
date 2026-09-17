@@ -1,10 +1,13 @@
 ; Engine configuration file.
 ; Voronoi Game - Desktop-Neuaufbau in Godot 4.
 ;
-; Hinweis: Es wird bewusst KEIN display/window/stretch/mode gesetzt.
-; Das Brett wird von view/board_transform.gd selbst auf die Fenstergroesse
-; skaliert und zentriert (Letterbox), damit die UI in echten Fensterpixeln
-; scharf bleibt.
+; Die Fensterskalierung uebernimmt die Engine: das Brett ist die Basisgroesse
+; (900x600), `stretch/mode=canvas_items` skaliert es fliessend auf die
+; Fenstergroesse und `stretch/aspect=keep` haelt dabei das Seitenverhaeltnis
+; (ungenutzte Raender bleiben leer). Damit muss die Fenstergroesse nicht mehr
+; selbst nachgezogen werden. Bei genau 900x600 ist der eigene
+; view_transform neutral, Linien und Text werden also im
+; 1:1-Massstab gerastert.
 
 config_version=5
 
@@ -17,9 +20,11 @@ config/features=PackedStringArray("4.6", "GL Compatibility")
 
 [display]
 
-window/size/viewport_width=1000
-window/size/viewport_height=700
+window/size/viewport_width=900
+window/size/viewport_height=600
 window/size/resizable=true
+window/stretch/mode="canvas_items"
+window/stretch/aspect="keep"
 
 [physics]
 

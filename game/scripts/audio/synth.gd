@@ -16,8 +16,12 @@ var board: BoardState
 var _pool: VoicePool
 var _streams := {}
 var _scheduled: Array = []
+## Laufende Noten je Zelle: Zeitfenster und Huellkurve.
 var _highlights := {}
+## Zellen, deren Ton gerade klingt: Zellenindex -> Deckkraft (0..1).
+var _active_highlights := {}
 var _drag_tones := {}
+var _last_hover_at := -INF
 
 
 func setup(p_config: GameConfig, p_board: BoardState) -> void:
@@ -35,8 +39,10 @@ func now() -> float:
 	return float(Time.get_ticks_usec()) / 1000000.0
 
 
+## Zellen, deren Ton gerade klingt, mit der Deckkraft fuer die gelbe
+## Ueberlagerung (folgt der Huellkurve des Tons, siehe _envelope_alpha).
 func active_highlight_cells() -> Dictionary:
-	return _highlights
+	return _active_highlights
 
 
 ## Frequenz aus der Zellflaeche (getCellFrequency / scheduleNoteForCell).
@@ -99,10 +105,65 @@ func spread_notes(main: Voronoi, plain: Voronoi, start_cell: int, from_pos: Vect
 			schedule_note(entry["index"], cell_frequency(plain, entry["index"]), offset)
 
 
-func schedule_note(cell: int, freq: float, start_time: float) -> void:
-	_scheduled.append({"start": start_time, "cell": cell, "freq": freq, "wave": config.waveform})
-	var stop_time := start_time + GameConfig.NOTE_DURATION + config.release + GameConfig.NOTE_TAIL
-	_highlights[cell] = {"start": start_time, "end": stop_time}
+func schedule_note(cell: int, freq: float, start_time: float, volume := 1.0, highlight := true) -> void:
+	_scheduled.append({
+		"start": start_time,
+		"cell": cell,
+		"freq": freq,
+		"wave": config.waveform,
+		"volume": volume,
+	})
+	if not highlight:
+		return
+	_highlights[cell] = {
+		"start": start_time,
+		"attack": config.attack,
+		"decay": config.decay,
+		"sustain": config.sustain,
+		"hold_end": start_time + GameConfig.NOTE_DURATION,
+		"release": config.release,
+		"volume": volume,
+		"end": start_time + GameConfig.NOTE_DURATION + config.release + GameConfig.NOTE_TAIL,
+	}
+
+
+## Deckkraft der gelben Ueberlagerung zur Zeit t: dieselbe Huellkurve wie die
+## Note (Attack, Decay auf Sustain, danach linear auf 0). Vor dem Start und
+## nach dem Ende ist sie 0.
+static func _envelope_alpha(entry: Dictionary, t: float) -> float:
+	var start := float(entry["start"])
+	var attack := float(entry["attack"])
+	var decay := float(entry["decay"])
+	var sustain := float(entry["sustain"])
+	var hold_end := float(entry["hold_end"])
+	var release := float(entry["release"])
+	var volume := float(entry["volume"])
+	var end := hold_end + release
+	if t < start or t >= end or volume <= 0.0:
+		return 0.0
+	if t < start + attack:
+		return _ramp(0.0, volume, t - start, attack)
+	if t < start + attack + decay:
+		return _ramp(volume, sustain * volume, t - start - attack, decay)
+	return _ramp(sustain * volume, 0.0, t - (start + attack + decay), end - (start + attack + decay))
+
+
+static func _ramp(from_value: float, to_value: float, elapsed: float, span: float) -> float:
+	if span <= 0.0:
+		return to_value
+	return lerpf(from_value, to_value, clampf(elapsed / span, 0.0, 1.0))
+
+
+## Leiser Ton beim Ueberfahren einer Zelle (Windspiel): nur mit
+## Mindestabstand und ohne Hervorhebung, damit die Flaeche ruhig bleibt.
+func hover_note(cell: int, plain: Voronoi) -> void:
+	if cell < 0 or plain == null:
+		return
+	var t := now()
+	if t - _last_hover_at < GameConfig.HOVER_COOLDOWN_SEC:
+		return
+	_last_hover_at = t
+	schedule_note(cell, cell_frequency(plain, cell), t, GameConfig.HOVER_VOLUME, false)
 
 
 ## Drag-Dauertoene: BFS-Tiefe 2, Startzelle mit voller Lautstaerke,
@@ -168,6 +229,7 @@ func stop_all() -> void:
 	_drag_tones.clear()
 	_scheduled.clear()
 	_highlights.clear()
+	_active_highlights.clear()
 
 
 ## Pro Frame aufrufen: faellige Noten starten, Huellkurven fortschreiben.
@@ -179,14 +241,26 @@ func process() -> void:
 		var remaining: Array = []
 		for entry in _scheduled:
 			if t >= float(entry["start"]):
-				_pool.start_note(_pool.stream_for(entry["wave"]), float(entry["freq"]), config, t)
+				_pool.start_note(_pool.stream_for(entry["wave"]), float(entry["freq"]), config, t, float(entry["volume"]))
 			else:
 				remaining.append(entry)
 		_scheduled = remaining
 	_pool.advance(t)
+	_update_highlights(t)
+
+
+## Zellen, deren Ton gerade klingt, mit der aktuellen Deckkraft. Noch nicht
+## gestartete Noten sind nicht dabei: die Zellen werden also nacheinander gelb.
+func _update_highlights(t: float) -> void:
+	_active_highlights.clear()
 	for cell in _highlights.keys().duplicate():
-		if t > float(_highlights[cell]["end"]):
+		var entry: Dictionary = _highlights[cell]
+		if t > float(entry["end"]):
 			_highlights.erase(cell)
+			continue
+		var alpha := _envelope_alpha(entry, t)
+		if alpha > 0.0:
+			_active_highlights[cell] = alpha
 
 
 func _apply_drag_tone(cell: int, volume_factor: float, plain: Voronoi) -> void:

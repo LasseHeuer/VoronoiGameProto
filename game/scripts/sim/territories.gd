@@ -131,33 +131,69 @@ static func init_color_territories(board: BoardState, config: GameConfig, main: 
 ## Farbausbreitung: jede Zelle uebernimmt die Farbe ihres groessten
 ## sichtbaren Nachbarn (updateColorsByLargestNeighbor).
 static func update_colors_by_largest_neighbor(board: BoardState, voronoi: Voronoi, iterations: int) -> void:
-	var n := voronoi.cells.size()
-	if n == 0:
-		return
+	board.apply_color_ids(propagate_ids(CellGeometry.from_voronoi(voronoi), board.color_ids(), iterations))
+
+
+## Farbschluessel nach der Ausbreitung. `ids` wird dabei veraendert.
+static func propagate_ids(geometry: CellGeometry, ids: PackedByteArray, iterations: int) -> PackedByteArray:
+	for step in color_change_steps(geometry, ids, iterations):
+		ids[step["cell"]] = step["color"]
+	return ids
+
+
+## Einzelne Farbwechsel der Ausbreitung in der Reihenfolge, in der sie
+## passieren (Zelle, neue Farbe). `ids` bleibt unveraendert; die Liste eignet
+## sich zum schrittweisen Anwenden.
+static func color_change_steps(geometry: CellGeometry, ids: PackedByteArray, iterations: int) -> Array:
+	var n := mini(geometry.count(), ids.size())
+	if n == 0 or iterations <= 0:
+		return []
 	# Die Flaechen aendern sich innerhalb der Schleife nicht, also ist die
 	# Reihenfolge in jeder Iteration dieselbe (JS sortiert stabil neu).
-	var order := _order_by_area_desc(voronoi.areas)
-	var ids := board.color_ids()
+	var order := _order_by_area_desc(geometry.areas)
+	var work := ids.duplicate()
+	var steps: Array = []
 	var changed := true
 	var count := 0
 	while changed and count < iterations:
 		changed = false
 		count += 1
 		for i in order:
+			if i >= n:
+				continue
 			var max_area := -1.0
 			var max_id := 0
-			for nb in voronoi.visible_neighbors_of(i):
-				var nb_id := ids[nb]
+			for nb in geometry.neighbors[i]:
+				if nb >= n:
+					continue
+				var nb_id := work[nb]
 				if nb_id == 0:
 					continue
-				var nb_area := voronoi.area(nb)
+				var nb_area := geometry.areas[nb]
 				if nb_area > max_area:
 					max_area = nb_area
 					max_id = nb_id
-			if max_id != 0 and ids[i] != max_id:
-				ids[i] = max_id
+			if max_id != 0 and work[i] != max_id:
+				work[i] = max_id
+				steps.append({"cell": i, "color": max_id})
 				changed = true
-	board.apply_color_ids(ids)
+	return steps
+
+
+## Anzahl der Zellen mit `color`, die durch die Ausbreitung ihre Farbe
+## verlieren wuerden. Zellen in `ignored` zaehlen nicht mit (z. B. die eigenen
+## Nachbarn der gezogenen Zelle: zwischen ihnen kommt man durch, ohne die
+## Zelle zu verlieren). Der Zustand bleibt unveraendert.
+static func lost_cells(geometry: CellGeometry, ids: PackedByteArray, iterations: int, color: String, ignored := PackedInt32Array()) -> int:
+	var color_id := BoardState.color_id(color)
+	if color_id == 0:
+		return 0
+	var after := propagate_ids(geometry, ids.duplicate(), iterations)
+	var lost := 0
+	for i in range(mini(ids.size(), after.size())):
+		if ids[i] == color_id and after[i] != color_id and not ignored.has(i):
+			lost += 1
+	return lost
 
 
 ## Groesster sichtbarer Nachbar mit der Zielfarbe
