@@ -150,11 +150,32 @@ const FALLBACK_FREQ := 220.0
 ## Radius der Zellpunkte in Brettpixeln.
 @export var point_radius: float = 8.0
 
+# -------------------------------------------------------- Halbtonraster -----
+## Bildschirmweiter Halbtonraster-Effekt ueber dem Spiel. Die Einstellungen
+## selbst bleiben ungerastert (siehe view/halftone_overlay.gd).
+@export var halftone_enabled: bool = true
+## Rasterweite (Abstand der Punkte) in Fensterpixeln.
+@export var halftone_dot_size: float = 6.0
+## Drehung des Rasters in Grad.
+@export var halftone_angle: float = 15.0
+## Punktwachstum: groessere Werte ergeben groessere Punkte.
+@export var halftone_gain: float = 1.0
+## Kontrast der Helligkeit vor dem Rastern.
+@export var halftone_contrast: float = 1.0
+## Weichheit der Punktkanten (0 = hart, 1 = weich).
+@export var halftone_softness: float = 0.3
+## Farbtrennung: zusaetzliche Drehung zwischen den Farbkanaelen.
+@export var halftone_separation: float = 1.0
+## Papieranteil in den Zwischenraeumen (0 = Originalfarbe, 1 = Papierton).
+@export var halftone_paper: float = 0.75
+## Staerke des Effekts (0 = aus, 1 = voll).
+@export var halftone_amount: float = 1.0
+
 @export var random_seed: int = 0
 
 # ------------------------------------------------------------- Schema ------
 ## Reihenfolge der Gruppen im Einstellungsmenue.
-const SETTING_GROUPS := ["Klang", "Spiel", "Darstellung"]
+const SETTING_GROUPS := ["Klang", "Spiel", "Darstellung", "Halbton"]
 
 const SLIDERS := [
 	{"key": "attack", "label": "Attack", "min": 0.0, "max": 3.0, "step": 0.01, "group": "Klang"},
@@ -180,6 +201,14 @@ const SLIDERS := [
 	{"key": "cell_gap", "label": "Zellabstand", "min": 0.0, "max": 4.0, "step": 0.1, "group": "Darstellung"},
 	{"key": "boundary_label_threshold", "label": "Mindest-Grenzlinie", "min": 0.0, "max": 100.0, "step": 1.0, "group": "Darstellung"},
 	{"key": "point_radius", "label": "Punktgroesse", "min": 4.0, "max": 20.0, "step": 1.0, "group": "Darstellung"},
+	{"key": "halftone_dot_size", "label": "Rasterweite", "min": 2.0, "max": 24.0, "step": 0.5, "group": "Halbton"},
+	{"key": "halftone_angle", "label": "Rasterwinkel", "min": 0.0, "max": 90.0, "step": 1.0, "group": "Halbton"},
+	{"key": "halftone_gain", "label": "Punktwachstum", "min": 0.1, "max": 3.0, "step": 0.05, "group": "Halbton"},
+	{"key": "halftone_contrast", "label": "Kontrast", "min": 0.2, "max": 3.0, "step": 0.05, "group": "Halbton"},
+	{"key": "halftone_softness", "label": "Kantenweichheit", "min": 0.0, "max": 1.0, "step": 0.01, "group": "Halbton"},
+	{"key": "halftone_separation", "label": "Farbtrennung", "min": 0.0, "max": 3.0, "step": 0.05, "group": "Halbton"},
+	{"key": "halftone_paper", "label": "Papieranteil", "min": 0.0, "max": 1.0, "step": 0.01, "group": "Halbton"},
+	{"key": "halftone_amount", "label": "Effektstaerke", "min": 0.0, "max": 1.0, "step": 0.01, "group": "Halbton"},
 ]
 
 const TOGGLES := [
@@ -189,6 +218,7 @@ const TOGGLES := [
 	{"key": "show_flow", "label": "Flow anzeigen", "group": "Darstellung"},
 	{"key": "show_all_flows", "label": "Flows fuer alle Zellen", "group": "Darstellung"},
 	{"key": "show_all_cell_numbers", "label": "Zahlen fuer alle Zellen", "group": "Darstellung"},
+	{"key": "halftone_enabled", "label": "Halbtonraster", "group": "Halbton"},
 ]
 
 const WAVEFORMS := ["triangle", "sine", "square", "sawtooth"]
@@ -226,6 +256,15 @@ const DEFAULTS := {
 	"show_all_flows": false,
 	"show_all_cell_numbers": false,
 	"boundary_label_threshold": 10.0,
+	"halftone_enabled": true,
+	"halftone_dot_size": 6.0,
+	"halftone_angle": 15.0,
+	"halftone_gain": 1.0,
+	"halftone_contrast": 1.0,
+	"halftone_softness": 0.3,
+	"halftone_separation": 1.0,
+	"halftone_paper": 0.75,
+	"halftone_amount": 1.0,
 }
 
 func _init() -> void:

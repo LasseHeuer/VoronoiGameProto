@@ -84,12 +84,13 @@ scripts/
            relaxation.gd, turns.gd
   audio/   audio_setup.gd, waveform_bank.gd, voice_pool.gd, synth.gd
   input/   board_input.gd
-  view/    board_renderer.gd, board_transform.gd
+  view/    board_renderer.gd, board_transform.gd, halftone_overlay.gd
   ui/      settings_panel.gd, gear_button.gd
+shaders/   halftone.gdshader (Halbtonraster)
 tests/unit/  GUT-Tests (test_geometry, test_delaunay, test_voronoi,
              test_territories, test_relaxation, test_settings,
              test_synth, test_view, test_board_input, test_color_steps,
-              test_cell_geometry)
+              test_cell_geometry, test_halftone)
 ```
 
 `core/` kennt kein Rendering, Audio, UI oder Eingabe. `sim/` veraendert nur
@@ -255,3 +256,11 @@ stimmen vollstaendig ueberein.
 - **Schrittweiser Verlust**: Mehrere Farbwechsel laufen nacheinander im
   Abstand des Reglers "Verlust-Schritt (ms)" (Standard 25 ms). So ist zu
   sehen, wie die Zellen eine nach der anderen fallen.
+- **Halbtonraster**: Ein bildschirmweiter Effekt (`shaders/halftone.gdshader`,
+  gesteuert von `view/halftone_overlay.gd`) legt ein farbiges Punktraster ueber
+  das Spiel. Die Punktgroesse folgt der Helligkeit jedes Farbkanals, die
+  Kanaele koennen gegeneinander verdreht werden (Farbtrennung), und die
+  Zwischenraeume werden Richtung Papierton aufgehellt. Das Rechteck liegt unter
+  dem Einstellungsmenue, deshalb bleiben die Einstellungen ungerastert. Alle
+  Werte stehen als Regler in der Gruppe "Halbton" und wirken ohne Neustart;
+  "Halbtonraster" schaltet den Effekt ganz aus.

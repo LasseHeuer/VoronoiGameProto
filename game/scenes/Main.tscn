@@ -1,4 +1,4 @@
-[gd_scene load_steps=8 format=3]
+[gd_scene load_steps=9 format=3]
 
 [ext_resource type="Script" path="res://scripts/app/game_app.gd" id="1_app"]
 [ext_resource type="Script" path="res://scripts/view/board_renderer.gd" id="2_view"]
@@ -7,6 +7,7 @@
 [ext_resource type="PackedScene" path="res://scenes/SettingsPanel.tscn" id="6_panel"]
 [ext_resource type="Script" path="res://scripts/ui/gear_button.gd" id="7_gear"]
 [ext_resource type="Script" path="res://scripts/ui/restart_button.gd" id="8_restart"]
+[ext_resource type="Script" path="res://scripts/view/halftone_overlay.gd" id="9_halftone"]
 
 [node name="Main" type="Node"]
 script = ExtResource("1_app")
@@ -37,5 +38,14 @@ offset_bottom = 34.0
 tooltip_text = "Neustart"
 flat = true
 script = ExtResource("8_restart")
+
+[node name="HalftoneOverlay" type="ColorRect" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("9_halftone")
 
 [node name="SettingsPanel" parent="." instance=ExtResource("6_panel")]

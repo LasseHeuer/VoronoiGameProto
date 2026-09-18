@@ -17,6 +17,7 @@ const BOARD_RECT := Rect2(0, 0, GameConfig.BOARD_WIDTH, GameConfig.BOARD_HEIGHT)
 @onready var board_input: BoardInput = $BoardInput
 @onready var audio: Synth = $Audio
 @onready var settings_panel: SettingsPanel = $SettingsPanel
+@onready var halftone_overlay: HalftoneOverlay = $HalftoneOverlay
 @onready var show_settings_button: Button = $ShowSettingsButton
 @onready var restart_button: Button = $RestartButton
 
@@ -54,6 +55,7 @@ func _ready() -> void:
 	board_input.setup(board, config)
 	audio.setup(config, board)
 	settings_panel.setup(config)
+	halftone_overlay.setup(config)
 
 	settings_panel.value_changed.connect(_on_setting_changed)
 	settings_panel.restart_requested.connect(restart)
@@ -231,6 +233,8 @@ func _on_setting_changed(key: String, value: Variant) -> void:
 		"stamina":
 			board.stamina_player1 = minf(board.stamina_player1, config.stamina)
 			board.stamina_player2 = minf(board.stamina_player2, config.stamina)
+	if key.begins_with("halftone_"):
+		halftone_overlay.apply()
 
 
 func _on_notes_spread_requested(cell_index: int, from_pos: Vector2) -> void:
