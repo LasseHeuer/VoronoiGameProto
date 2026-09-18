@@ -7,14 +7,15 @@ extends RefCounted
 const PATH := "user://settings.cfg"
 const SECTION := "settings"
 
-## Alle Keys des Config-Schemas (Slider, Toggles, Wellenform).
+## Alle Keys des Config-Schemas (Slider, Toggles, Auswahlfelder).
 static func schema_keys() -> PackedStringArray:
 	var keys := PackedStringArray()
 	for entry in GameConfig.SLIDERS:
 		keys.append(entry["key"])
 	for entry in GameConfig.TOGGLES:
 		keys.append(entry["key"])
-	keys.append("waveform")
+	for entry in GameConfig.CHOICES:
+		keys.append(entry["key"])
 	return keys
 
 static func save(config: GameConfig) -> void:

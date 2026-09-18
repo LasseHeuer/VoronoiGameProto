@@ -132,6 +132,8 @@ static func init_color_territories(board: BoardState, config: GameConfig, main: 
 	board.reset_colors()
 	board.set_cell_color(big1, GameConfig.COLOR_PLAYER1)
 	board.set_cell_color(big2, GameConfig.COLOR_PLAYER2)
+	board.influence_root1 = big1
+	board.influence_root2 = big2
 	if board.active_color == "":
 		board.active_color = GameConfig.COLOR_PLAYER1
 
@@ -206,18 +208,20 @@ static func _best_recolor_candidate(indices: Array, board: BoardState, voronoi: 
 	return best
 
 
-## Farbausbreitung: jede Zelle uebernimmt die Farbe ihres groessten
-## sichtbaren Nachbarn (updateColorsByLargestNeighbor).
+## Farbausbreitung: jede Zelle wird von der Staerke der beiden Wurzelzellen
+## erreicht. Es gewinnt der Spieler mit der groesseren Staerke; Zellen, zu denen
+## keine Staerke gelangt, bleiben neutral und grau.
 static func update_colors_by_largest_neighbor(board: BoardState, voronoi: Voronoi, iterations: int,
 		switch_margin_ratio := COLOR_SWITCH_MARGIN_RATIO) -> void:
 	board.apply_color_ids(propagate_ids(CellGeometry.from_voronoi(voronoi, true), board.color_ids(),
-		iterations, switch_margin_ratio))
+		iterations, switch_margin_ratio, board.influence_roots()))
 
 
 ## Farbschluessel nach der Ausbreitung. `ids` wird dabei veraendert.
 static func propagate_ids(geometry: CellGeometry, ids: PackedByteArray, iterations: int,
-		switch_margin_ratio := COLOR_SWITCH_MARGIN_RATIO) -> PackedByteArray:
-	for step in color_change_steps(geometry, ids, iterations, switch_margin_ratio):
+		switch_margin_ratio := COLOR_SWITCH_MARGIN_RATIO,
+		roots := PackedInt32Array()) -> PackedByteArray:
+	for step in color_change_steps(geometry, ids, iterations, switch_margin_ratio, roots):
 		ids[step["cell"]] = step["color"]
 	return ids
 
@@ -225,70 +229,23 @@ static func propagate_ids(geometry: CellGeometry, ids: PackedByteArray, iteratio
 ## Einzelne Farbwechsel der Ausbreitung in der Reihenfolge, in der sie
 ## passieren (Zelle, neue Farbe). `ids` bleibt unveraendert; die Liste eignet
 ## sich zum schrittweisen Anwenden.
+##
+## Zielbesitzer ist die per Grenze weitergegebene Staerke bis 0: der staerkere
+## Spieler gewinnt, Zellen ohne Staerke werden neutral (0 = grau). Die
+## Reihenfolge folgt der Zellgroesse, damit grosse Zellen zuerst kippen.
 static func color_change_steps(geometry: CellGeometry, ids: PackedByteArray, iterations: int,
-		switch_margin_ratio := COLOR_SWITCH_MARGIN_RATIO) -> Array:
+		switch_margin_ratio := COLOR_SWITCH_MARGIN_RATIO,
+		roots := PackedInt32Array()) -> Array:
 	var n := mini(geometry.count(), ids.size())
 	if n == 0 or iterations <= 0:
 		return []
-	# Die Flaechen aendern sich innerhalb der Schleife nicht, also ist die
-	# Reihenfolge in jeder Iteration dieselbe (JS sortiert stabil neu).
-	var order := _order_by_area_desc(geometry.areas)
-	var work := ids.duplicate()
+	var target := Influence.owner_ids(geometry, ids, roots)
 	var steps: Array = []
-	var changed := true
-	var count := 0
-	while changed and count < iterations:
-		changed = false
-		count += 1
-		for i in order:
-			if i >= n:
-				continue
-			var support := {}
-			for nb in geometry.neighbors[i]:
-				if nb >= n:
-					continue
-				var nb_id := work[nb]
-				if nb_id == 0:
-					continue
-				var influence := relative_neighbor_value(geometry, work, i, nb)
-				if is_zero_approx(influence):
-					continue
-				support[nb_id] = float(support.get(nb_id, 0.0)) + absf(influence)
-
-			var current_id := work[i]
-			var target_id := 0
-			var target_support := 0.0
-			for color_id in support:
-				var value: float = support[color_id]
-				if value > target_support:
-					target_support = value
-					target_id = int(color_id)
-
-			# Ungefaerbte Zellen werden weiterhin von ihrem staerksten
-			# angrenzenden Gebiet erreicht, auch wenn sie selbst groesser sind.
-			if current_id == 0:
-				var fallback_area := -1.0
-				for nb in geometry.neighbors[i]:
-					if nb >= n or work[nb] == 0:
-						continue
-					if geometry.areas[nb] > fallback_area:
-						fallback_area = geometry.areas[nb]
-						target_id = work[nb]
-				if target_id != 0:
-					work[i] = target_id
-					steps.append({"cell": i, "color": target_id})
-					changed = true
-				continue
-
-			var current_support: float = float(support.get(current_id, 0.0))
-			# Der Nettowert ist eigener Support minus gegnerischer Support.
-			# Bei Gleichstand bleibt die bisherige Farbe erhalten.
-			if target_id != 0 and target_id != current_id \
-				and target_support > current_support \
-				and target_support > current_support * (1.0 + switch_margin_ratio):
-				work[i] = target_id
-				steps.append({"cell": i, "color": target_id})
-				changed = true
+	for i in _order_by_area_desc(geometry.areas):
+		if i >= n:
+			continue
+		if int(target[i]) != int(ids[i]):
+			steps.append({"cell": i, "color": int(target[i])})
 	return steps
 
 

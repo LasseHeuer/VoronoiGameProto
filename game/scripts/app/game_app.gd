@@ -260,8 +260,11 @@ func _on_drag_tone_ramp_down_requested(cell_index: int) -> void:
 
 
 func _update_game_result() -> void:
-	if not board.game_over or board.winner_color != "" or voronoi_main == null:
+	if board.winner_color != "" or voronoi_main == null:
 		return
+	if not board.game_over and board.remaining_color() == "":
+		return
+	board.game_over = true
 	var area1 := Territories.total_area_for_color(board, voronoi_main, GameConfig.COLOR_PLAYER1)
 	var area2 := Territories.total_area_for_color(board, voronoi_main, GameConfig.COLOR_PLAYER2)
 	if is_equal_approx(area1, area2):

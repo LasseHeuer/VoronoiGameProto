@@ -18,6 +18,11 @@ var use_dummy_points := true
 ## Basisfarbe je Zelle ("" = noch keine Farbe).
 var cell_colors := PackedStringArray()
 
+## Wurzelzellen der Einflussverteilung: die groessten Zellen beider Spieler zu
+## Spielbeginn. Von ihnen fliesst die Staerke ueber die Zellgrenzen.
+var influence_root1 := -1
+var influence_root2 := -1
+
 ## Aktuell ziehender Spieler (Farbe).
 var active_color := ""
 
@@ -48,6 +53,13 @@ func reset_colors() -> void:
 	cell_colors = PackedStringArray()
 	cell_colors.resize(points.size())
 	cell_colors.fill("")
+	influence_root1 = -1
+	influence_root2 = -1
+
+
+## Wurzelzellen beider Spieler in der Reihenfolge [Spieler 1, Spieler 2].
+func influence_roots() -> PackedInt32Array:
+	return PackedInt32Array([influence_root1, influence_root2])
 
 
 func reset_stamina(config: GameConfig) -> void:
@@ -112,6 +124,21 @@ func cell_color(index: int) -> String:
 
 func has_color(index: int) -> bool:
 	return cell_color(index) != ""
+
+
+## Liefert die Spielerfarbe, wenn genau eine Farbe auf dem Brett liegt.
+## Sind beide Farben (oder keine) vorhanden, ist das Ergebnis "".
+func remaining_color() -> String:
+	var remaining := ""
+	for i in range(cell_colors.size()):
+		var color := cell_colors[i]
+		if color == "":
+			continue
+		if remaining == "":
+			remaining = color
+		elif remaining != color:
+			return ""
+	return remaining
 
 
 ## Farben als Zahlen (0 = keine, 1 = Spieler 1, 2 = Spieler 2). Die

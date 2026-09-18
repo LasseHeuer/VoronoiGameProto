@@ -22,7 +22,8 @@ func test_defaults_cover_the_whole_schema() -> void:
 		assert_true(GameConfig.DEFAULTS.has(entry["key"]), entry["key"])
 	for entry in GameConfig.TOGGLES:
 		assert_true(GameConfig.DEFAULTS.has(entry["key"]), entry["key"])
-	assert_true(GameConfig.DEFAULTS.has("waveform"))
+	for entry in GameConfig.CHOICES:
+		assert_true(GameConfig.DEFAULTS.has(entry["key"]), entry["key"])
 
 
 func test_defaults_match_the_reference_values() -> void:
@@ -92,8 +93,11 @@ func test_settings_store_keys_match_the_schema() -> void:
 		assert_true(keys.has(entry["key"]), entry["key"])
 	for entry in GameConfig.TOGGLES:
 		assert_true(keys.has(entry["key"]), entry["key"])
+	for entry in GameConfig.CHOICES:
+		assert_true(keys.has(entry["key"]), entry["key"])
 	assert_true(keys.has("waveform"))
-	assert_eq(keys.size(), GameConfig.SLIDERS.size() + GameConfig.TOGGLES.size() + 1)
+	assert_eq(keys.size(), GameConfig.SLIDERS.size() + GameConfig.TOGGLES.size()
+		+ GameConfig.CHOICES.size())
 
 
 func test_board_state_color_helpers() -> void:
@@ -155,6 +159,20 @@ func test_stamina_end_phase_allows_multiple_moves() -> void:
 	assert_true(board.game_over)
 
 
+func test_remaining_color_reports_the_last_surviving_player() -> void:
+	var board := BoardState.new()
+	board.points = PackedVector2Array([Vector2.ZERO, Vector2.ONE, Vector2(2.0, 2.0)])
+	board.reset_colors()
+	assert_eq(board.remaining_color(), "", "ohne Farben gibt es keinen Sieger")
+	board.set_cell_color(0, GameConfig.COLOR_PLAYER1)
+	assert_eq(board.remaining_color(), GameConfig.COLOR_PLAYER1)
+	board.set_cell_color(1, GameConfig.COLOR_PLAYER2)
+	assert_eq(board.remaining_color(), "", "solange beide Farben liegen, laeuft das Spiel")
+	board.set_cell_color(1, GameConfig.COLOR_PLAYER1)
+	board.set_cell_color(2, GameConfig.COLOR_PLAYER1)
+	assert_eq(board.remaining_color(), GameConfig.COLOR_PLAYER1, "nur noch Rot: Rot gewinnt")
+
+
 func test_settings_panel_builds_rows_and_writes_back_to_config() -> void:
 	var config := GameConfig.new()
 	var panel: SettingsPanel = load("res://scenes/SettingsPanel.tscn").instantiate()
@@ -164,11 +182,13 @@ func test_settings_panel_builds_rows_and_writes_back_to_config() -> void:
 	var changed: Array = []
 	panel.value_changed.connect(func(key: String, _value: Variant): changed.append(key))
 
-	# Jede Gruppe bekommt einen Abschnittstitel, dazu Wave und alle Regler
-	# und Schalter aus dem Schema.
+	# Jede Gruppe bekommt einen Abschnittstitel, dazu alle Auswahlfelder,
+	# Regler und Schalter aus dem Schema.
 	assert_eq(panel._rows.get_children().size(),
-		GameConfig.SETTING_GROUPS.size() + 1 + GameConfig.SLIDERS.size() + GameConfig.TOGGLES.size())
-	assert_eq(panel._controls.size(), 1 + GameConfig.SLIDERS.size() + GameConfig.TOGGLES.size())
+		GameConfig.SETTING_GROUPS.size() + GameConfig.CHOICES.size()
+		+ GameConfig.SLIDERS.size() + GameConfig.TOGGLES.size())
+	assert_eq(panel._controls.size(),
+		GameConfig.CHOICES.size() + GameConfig.SLIDERS.size() + GameConfig.TOGGLES.size())
 
 	var expected_changes := 0
 	for entry in GameConfig.SLIDERS:
@@ -185,6 +205,23 @@ func test_settings_panel_builds_rows_and_writes_back_to_config() -> void:
 		else:
 			assert_almost_eq(float(stored), float(entry["max"]), 0.0001, key)
 	assert_eq(changed.size(), expected_changes, "jede tatsaechliche Aenderung meldet sich")
+
+
+func test_settings_panel_choice_dropdowns_write_back_to_config() -> void:
+	var config := GameConfig.new()
+	var panel: SettingsPanel = load("res://scenes/SettingsPanel.tscn").instantiate()
+	add_child_autofree(panel)
+	panel.setup(config)
+
+	for entry in GameConfig.CHOICES:
+		var key: String = entry["key"]
+		var values: Array = entry["values"]
+		var option: OptionButton = panel._controls[key]
+		assert_eq(option.item_count, values.size(), key)
+		assert_eq(option.selected, values.find(config.get(key)), key)
+		var other := (option.selected + 1) % values.size()
+		option.item_selected.emit(other)
+		assert_eq(config.get(key), values[other], key)
 
 
 func test_settings_panel_toggles_and_restart_button() -> void:
@@ -217,3 +254,76 @@ func test_settings_panel_spans_the_full_window_height() -> void:
 	add_child_autofree(panel)
 	assert_eq(panel.anchor_top, 0.0)
 	assert_eq(panel.anchor_bottom, 1.0, "das Menue geht ueber die ganze Hoehe")
+
+
+func test_settings_panel_sections_start_collapsed_and_toggle() -> void:
+	var config := GameConfig.new()
+	var panel: SettingsPanel = load("res://scenes/SettingsPanel.tscn").instantiate()
+	add_child_autofree(panel)
+	panel.setup(config)
+
+	for group in GameConfig.SETTING_GROUPS:
+		var rows: Array = panel._rows_by_group.get(group, [])
+		assert_false(rows.is_empty(), "Rubrik '%s' hat Zeilen" % group)
+		for row in rows:
+			assert_false(row.visible, "Rubrik '%s' startet eingeklappt" % group)
+		panel._toggle_section(group)
+		var shown := 0
+		for row in rows:
+			if row.visible:
+				shown += 1
+		var expected := rows.size()
+		if group == "Darstellung" and not config.show_flow:
+			expected -= 1
+		assert_eq(shown, expected, "Rubrik '%s' nach dem Ausklappen" % group)
+
+	var flow: CheckBox = panel._controls["show_flow"]
+	flow.button_pressed = true
+	assert_true(panel._rows_by_key["show_all_flows"].visible, "Flow-Zeile folgt dem Flow-Schalter")
+	flow.button_pressed = false
+	assert_false(panel._rows_by_key["show_all_flows"].visible, "ohne Flow ist die Zeile verborgen")
+
+
+func test_settings_panel_draws_its_section_headers() -> void:
+	var config := GameConfig.new()
+	var panel: SettingsPanel = load("res://scenes/SettingsPanel.tscn").instantiate()
+	add_child_autofree(panel)
+	panel.setup(config)
+	panel.visible = true
+	panel.queue_redraw()
+	await wait_process_frames(2)
+	assert_true(true, "die Rubrik-Knoepfe zeichnen ohne Fehler")
+
+
+func test_settings_panel_fine_step_is_a_tenth() -> void:
+	var panel: SettingsPanel = load("res://scenes/SettingsPanel.tscn").instantiate()
+	add_child_autofree(panel)
+	assert_almost_eq(panel._fine_step(0.01), 0.001, 0.000001)
+	assert_almost_eq(panel._fine_step(1.0), 0.1, 0.000001)
+
+
+func test_settings_panel_settings_snapshot_lists_current_values() -> void:
+	var config := GameConfig.new()
+	var panel: SettingsPanel = load("res://scenes/SettingsPanel.tscn").instantiate()
+	add_child_autofree(panel)
+	panel.setup(config)
+	config.attack = 1.25
+	config.dummy_points = false
+	config.waveform = "square"
+	var snapshot: String = panel._settings_snapshot()
+	assert_true(snapshot.contains("\"attack\": 1.25"), snapshot)
+	assert_true(snapshot.contains("\"dummy_points\": false"), snapshot)
+	assert_true(snapshot.contains("\"waveform\": \"square\""), snapshot)
+	assert_true(snapshot.contains("\"halftone_cyan_ink\": 1.0"), snapshot)
+
+
+func test_settings_panel_has_a_copy_button() -> void:
+	var config := GameConfig.new()
+	var panel: SettingsPanel = load("res://scenes/SettingsPanel.tscn").instantiate()
+	add_child_autofree(panel)
+	panel.setup(config)
+	var button: Button = panel.get_node("Margin/Layout/CopyButton")
+	assert_not_null(button)
+	assert_false(button.tooltip_text.is_empty())
+	button.pressed.emit()
+	assert_true(true, "das Kopieren laeuft ohne Fehler")

@@ -65,6 +65,16 @@ const BLINK_SLOW_SEC := 0.75
 const BLINK_FAST_SEC := 0.12
 
 const COLOR_PROPAGATION_ITERATIONS := 12
+
+## Einflussverteilung: Startstaerke an der groessten Zelle eines Spielers.
+const INFLUENCE_START_STRENGTH := 100.0
+## Anteil der Staerke, der ueber eine ideale Grenze weitergegeben wird. Groessere
+## Nachbarzellen und laengere gemeinsame Grenzen geben mehr weiter.
+const INFLUENCE_TRANSFER_RATE := 0.9
+## Unter dieser Staerke gilt eine Zelle als neutral: sie gehoert keinem Spieler
+## und bleibt grau.
+const INFLUENCE_MIN_STRENGTH := 0.5
+
 const BALANCE_TOLERANCE_RATIO := 0.05
 const INIT_MAX_ITERATIONS := 100
 const NEW_GAME_MAX_ITERATIONS := 50
@@ -151,25 +161,44 @@ const FALLBACK_FREQ := 220.0
 @export var point_radius: float = 8.0
 
 # -------------------------------------------------------- Halbtonraster -----
-## Bildschirmweiter Halbtonraster-Effekt ueber dem Spiel. Die Einstellungen
+## Bildschirmweiter CMYK-Halbton-Effekt ueber dem Spiel. Die Einstellungen
 ## selbst bleiben ungerastert (siehe view/halftone_overlay.gd).
 @export var halftone_enabled: bool = true
-## Rasterweite (Abstand der Punkte) in Fensterpixeln.
-@export var halftone_dot_size: float = 6.0
-## Drehung des Rasters in Grad.
-@export var halftone_angle: float = 15.0
-## Punktwachstum: groessere Werte ergeben groessere Punkte.
-@export var halftone_gain: float = 1.0
-## Kontrast der Helligkeit vor dem Rastern.
-@export var halftone_contrast: float = 1.0
-## Weichheit der Punktkanten (0 = hart, 1 = weich).
-@export var halftone_softness: float = 0.3
-## Farbtrennung: zusaetzliche Drehung zwischen den Farbkanaelen.
-@export var halftone_separation: float = 1.0
-## Papieranteil in den Zwischenraeumen (0 = Originalfarbe, 1 = Papierton).
-@export var halftone_paper: float = 0.75
-## Staerke des Effekts (0 = aus, 1 = voll).
-@export var halftone_amount: float = 1.0
+## Quelle des Streumusters: "code" erzeugt es beim Start, "asset" laedt die
+## PNG-Datei aus game/assets.
+@export var halftone_pattern: String = "code"
+## Rasterweite: Anzahl der Musterwiederholungen ueber den Bildschirm.
+@export var halftone_pattern_scaling: float = 6.0
+## Qualitaet der Mehrfachabtastung (hoeher = glatter, aber langsamer).
+@export var halftone_sampling_quality: float = 0.5
+## Rasterwinkel je Druckfarbe in Grad.
+@export var halftone_cyan_rotation: float = 0.0
+@export var halftone_magenta_rotation: float = 15.0
+@export var halftone_yellow_rotation: float = 30.0
+@export var halftone_black_rotation: float = 45.0
+## Zusaetzlicher Farbauszug je Druckfarbe in Grad.
+@export var halftone_cyan_offset_rotation: float = 0.0
+@export var halftone_magenta_offset_rotation: float = 0.0
+@export var halftone_yellow_offset_rotation: float = 0.0
+@export var halftone_black_offset_rotation: float = 0.0
+## Helligkeitsschwelle, unter der Bildpunkte als durchsichtig gelten.
+@export var halftone_alpha_threshold: float = 0.5
+## Druckdeckkraft je Druckfarbe: 0 = kein Farbauftrag, 1 = volle Deckung.
+@export var halftone_cyan_ink: float = 1.0
+@export var halftone_magenta_ink: float = 1.0
+@export var halftone_yellow_ink: float = 1.0
+@export var halftone_black_ink: float = 1.0
+## Staerke der Rauschtextur auf der Deckkraft: 0 = gleichmaessiger Auftrag.
+## Jede Druckfarbe hat eigene Werte, damit die Kanaele unabhaengig streuen.
+@export var halftone_cyan_noise_strength: float = 0.0
+@export var halftone_magenta_noise_strength: float = 0.0
+@export var halftone_yellow_noise_strength: float = 0.0
+@export var halftone_black_noise_strength: float = 0.0
+## Wiederholungen der Rauschtextur ueber den Bildschirm, je Druckfarbe.
+@export var halftone_cyan_noise_scaling: float = 4.0
+@export var halftone_magenta_noise_scaling: float = 4.0
+@export var halftone_yellow_noise_scaling: float = 4.0
+@export var halftone_black_noise_scaling: float = 4.0
 
 @export var random_seed: int = 0
 
@@ -198,17 +227,32 @@ const SLIDERS := [
 	{"key": "loss_step_ms", "label": "Verlust-Schritt (ms)", "min": 0.0, "max": 300.0, "step": 5.0, "group": "Spiel"},
 	{"key": "loss_rescue_ms", "label": "Rettungszeit (ms)", "min": 0.0, "max": 5000.0, "step": 50.0, "group": "Spiel"},
 	{"key": "corner_radius", "label": "Zell-Abrundung", "min": 0.0, "max": 150.0, "step": 0.5, "group": "Darstellung"},
-	{"key": "cell_gap", "label": "Zellabstand", "min": 0.0, "max": 4.0, "step": 0.1, "group": "Darstellung"},
+	{"key": "cell_gap", "label": "Zellabstand", "min": 0.0, "max": 4.0, "step": 0.01, "group": "Darstellung"},
 	{"key": "boundary_label_threshold", "label": "Mindest-Grenzlinie", "min": 0.0, "max": 100.0, "step": 1.0, "group": "Darstellung"},
 	{"key": "point_radius", "label": "Punktgroesse", "min": 4.0, "max": 20.0, "step": 1.0, "group": "Darstellung"},
-	{"key": "halftone_dot_size", "label": "Rasterweite", "min": 2.0, "max": 24.0, "step": 0.5, "group": "Halbton"},
-	{"key": "halftone_angle", "label": "Rasterwinkel", "min": 0.0, "max": 90.0, "step": 1.0, "group": "Halbton"},
-	{"key": "halftone_gain", "label": "Punktwachstum", "min": 0.1, "max": 3.0, "step": 0.05, "group": "Halbton"},
-	{"key": "halftone_contrast", "label": "Kontrast", "min": 0.2, "max": 3.0, "step": 0.05, "group": "Halbton"},
-	{"key": "halftone_softness", "label": "Kantenweichheit", "min": 0.0, "max": 1.0, "step": 0.01, "group": "Halbton"},
-	{"key": "halftone_separation", "label": "Farbtrennung", "min": 0.0, "max": 3.0, "step": 0.05, "group": "Halbton"},
-	{"key": "halftone_paper", "label": "Papieranteil", "min": 0.0, "max": 1.0, "step": 0.01, "group": "Halbton"},
-	{"key": "halftone_amount", "label": "Effektstaerke", "min": 0.0, "max": 1.0, "step": 0.01, "group": "Halbton"},
+	{"key": "halftone_pattern_scaling", "label": "Rasterweite", "min": 0.05, "max": 24.0, "step": 0.01, "group": "Halbton"},
+	{"key": "halftone_sampling_quality", "label": "Qualitaet", "min": 0.05, "max": 1.0, "step": 0.05, "group": "Halbton"},
+	{"key": "halftone_cyan_rotation", "label": "Cyan Winkel", "min": -180.0, "max": 180.0, "step": 1.0, "group": "Halbton"},
+	{"key": "halftone_magenta_rotation", "label": "Magenta Winkel", "min": -180.0, "max": 180.0, "step": 1.0, "group": "Halbton"},
+	{"key": "halftone_yellow_rotation", "label": "Gelb Winkel", "min": -180.0, "max": 180.0, "step": 1.0, "group": "Halbton"},
+	{"key": "halftone_black_rotation", "label": "Schwarz Winkel", "min": -180.0, "max": 180.0, "step": 1.0, "group": "Halbton"},
+	{"key": "halftone_cyan_offset_rotation", "label": "Cyan Auszug", "min": -18.0, "max": 18.0, "step": 0.01, "group": "Halbton"},
+	{"key": "halftone_magenta_offset_rotation", "label": "Magenta Auszug", "min": -18.0, "max": 18.0, "step": 0.01, "group": "Halbton"},
+	{"key": "halftone_yellow_offset_rotation", "label": "Gelb Auszug", "min": -18.0, "max": 18.0, "step": 0.01, "group": "Halbton"},
+	{"key": "halftone_black_offset_rotation", "label": "Schwarz Auszug", "min": -18.0, "max": 18.0, "step": 0.01, "group": "Halbton"},
+	{"key": "halftone_alpha_threshold", "label": "Alpha-Schwelle", "min": 0.0, "max": 1.0, "step": 0.01, "group": "Halbton"},
+	{"key": "halftone_cyan_ink", "label": "Cyan Deckkraft", "min": 0.0, "max": 1.0, "step": 0.01, "group": "Halbton"},
+	{"key": "halftone_magenta_ink", "label": "Magenta Deckkraft", "min": 0.0, "max": 1.0, "step": 0.01, "group": "Halbton"},
+	{"key": "halftone_yellow_ink", "label": "Gelb Deckkraft", "min": 0.0, "max": 1.0, "step": 0.01, "group": "Halbton"},
+	{"key": "halftone_black_ink", "label": "Schwarz Deckkraft", "min": 0.0, "max": 1.0, "step": 0.01, "group": "Halbton"},
+	{"key": "halftone_cyan_noise_scaling", "label": "Cyan Rausch-Weite", "min": 0.05, "max": 24.0, "step": 0.01, "group": "Halbton"},
+	{"key": "halftone_cyan_noise_strength", "label": "Cyan Rausch-Staerke", "min": 0.0, "max": 1.0, "step": 0.01, "group": "Halbton"},
+	{"key": "halftone_magenta_noise_scaling", "label": "Magenta Rausch-Weite", "min": 0.05, "max": 24.0, "step": 0.01, "group": "Halbton"},
+	{"key": "halftone_magenta_noise_strength", "label": "Magenta Rausch-Staerke", "min": 0.0, "max": 1.0, "step": 0.01, "group": "Halbton"},
+	{"key": "halftone_yellow_noise_scaling", "label": "Gelb Rausch-Weite", "min": 0.05, "max": 24.0, "step": 0.01, "group": "Halbton"},
+	{"key": "halftone_yellow_noise_strength", "label": "Gelb Rausch-Staerke", "min": 0.0, "max": 1.0, "step": 0.01, "group": "Halbton"},
+	{"key": "halftone_black_noise_scaling", "label": "Schwarz Rausch-Weite", "min": 0.05, "max": 24.0, "step": 0.01, "group": "Halbton"},
+	{"key": "halftone_black_noise_strength", "label": "Schwarz Rausch-Staerke", "min": 0.0, "max": 1.0, "step": 0.01, "group": "Halbton"},
 ]
 
 const TOGGLES := [
@@ -222,8 +266,17 @@ const TOGGLES := [
 ]
 
 const WAVEFORMS := ["triangle", "sine", "square", "sawtooth"]
-## Gruppe der Wellenform-Auswahl im Einstellungsmenue.
-const WAVEFORM_GROUP := "Klang"
+## Musterquellen des Halbton-Effekts: im Code erzeugt oder als PNG-Datei.
+const HALFTONE_PATTERNS := ["code", "asset"]
+
+## Auswahlfelder im Einstellungsmenue. "values" sind die gespeicherten Werte,
+## "labels" die angezeigten Texte.
+const CHOICES := [
+	{"key": "waveform", "label": "Wave", "values": WAVEFORMS, "labels": WAVEFORMS,
+		"group": "Klang"},
+	{"key": "halftone_pattern", "label": "Streumuster", "values": HALFTONE_PATTERNS,
+		"labels": ["Im Code", "PNG-Datei"], "group": "Halbton"},
+]
 
 const DEFAULTS := {
 	"waveform": "triangle",
@@ -257,14 +310,30 @@ const DEFAULTS := {
 	"show_all_cell_numbers": false,
 	"boundary_label_threshold": 10.0,
 	"halftone_enabled": true,
-	"halftone_dot_size": 6.0,
-	"halftone_angle": 15.0,
-	"halftone_gain": 1.0,
-	"halftone_contrast": 1.0,
-	"halftone_softness": 0.3,
-	"halftone_separation": 1.0,
-	"halftone_paper": 0.75,
-	"halftone_amount": 1.0,
+	"halftone_pattern": "code",
+	"halftone_pattern_scaling": 6.0,
+	"halftone_sampling_quality": 0.5,
+	"halftone_cyan_rotation": 0.0,
+	"halftone_magenta_rotation": 15.0,
+	"halftone_yellow_rotation": 30.0,
+	"halftone_black_rotation": 45.0,
+	"halftone_cyan_offset_rotation": 0.0,
+	"halftone_magenta_offset_rotation": 0.0,
+	"halftone_yellow_offset_rotation": 0.0,
+	"halftone_black_offset_rotation": 0.0,
+	"halftone_alpha_threshold": 0.5,
+	"halftone_cyan_ink": 1.0,
+	"halftone_magenta_ink": 1.0,
+	"halftone_yellow_ink": 1.0,
+	"halftone_black_ink": 1.0,
+	"halftone_cyan_noise_strength": 0.0,
+	"halftone_magenta_noise_strength": 0.0,
+	"halftone_yellow_noise_strength": 0.0,
+	"halftone_black_noise_strength": 0.0,
+	"halftone_cyan_noise_scaling": 4.0,
+	"halftone_magenta_noise_scaling": 4.0,
+	"halftone_yellow_noise_scaling": 4.0,
+	"halftone_black_noise_scaling": 4.0,
 }
 
 func _init() -> void:

@@ -198,6 +198,33 @@ func test_largest_neighbor_by_color() -> void:
 		assert_eq(found["cell_id"], -1)
 
 
+## Die Staerke wird ueber die Grenze weitergegeben und nimmt mit jeder Grenze
+## ab. Weit entfernte Zellen erreichen 0 und bleiben neutral (grau).
+func test_influence_decays_until_zero() -> void:
+	var geometry := CellGeometry.new()
+	geometry.areas = PackedFloat32Array([400.0, 300.0, 200.0, 100.0, 50.0, 25.0, 12.0, 6.0])
+	for i in range(8):
+		var neighbors := PackedInt32Array()
+		var lengths := {}
+		if i > 0:
+			neighbors.append(i - 1)
+			lengths[i - 1] = float(40 - 3 * (i - 1))
+		if i < 7:
+			neighbors.append(i + 1)
+			lengths[i + 1] = float(40 - 3 * i)
+		geometry.neighbors.append(neighbors)
+		geometry.edge_lengths.append(lengths)
+
+	var strengths: PackedFloat32Array = Influence.flow(geometry, 0)["strengths"]
+	assert_gt(strengths[1], strengths[4], "die Staerke nimmt mit jeder Grenze ab")
+	assert_gt(strengths[4], 0.0, "mittlere Zellen erreichen noch Staerke")
+	assert_eq(strengths[7], 0.0, "weit entfernte Zellen erreichen keine Staerke")
+
+	var owners := Influence.owner_ids(geometry, PackedByteArray([1, 0, 0, 0, 0, 0, 0, 0]))
+	assert_eq(owners[0], 1, "die Wurzel bleibt beim Spieler")
+	assert_eq(owners[7], 0, "ohne Staerke bleibt die Zelle neutral und grau")
+
+
 func test_relative_influence_sums_larger_support_and_enemy_pressure() -> void:
 	var geometry := CellGeometry.new()
 	geometry.areas = PackedFloat32Array([100.0, 125.0, 200.0, 80.0])

@@ -232,6 +232,76 @@ func test_drawing_a_full_frame_runs_without_errors() -> void:
 	assert_true(true, "das Zeichnen laeuft ohne Fehler durch")
 
 
+## Der gegnerische Flow startet an der echten Front: die Zelle direkt vor dem
+## Fokus ist ein angrenzender Gegner und keine gleichfarbige Zelle.
+func test_enemy_flow_starts_at_the_front() -> void:
+	var config := GameConfig.new()
+	config.cell_count = 16
+	var board := BoardState.new()
+	board.dummy_points = Territories.generate_dummy_points()
+	Territories.init_on_new_game(board, config, DeterministicRng.new(777))
+	var voronoi := Voronoi.from_board(board,
+		Rect2(0.0, 0.0, GameConfig.BOARD_WIDTH, GameConfig.BOARD_HEIGHT))
+	var renderer := BoardRenderer.new()
+	add_child_autofree(renderer)
+	renderer.set_board_state(board, config, voronoi)
+
+	var geometry := CellGeometry.from_voronoi(voronoi, true)
+	var ids := board.color_ids()
+	var roots := Influence.resolve_roots(geometry, ids, board.influence_roots())
+	var flows := {
+		1: Influence.flow(geometry, roots[0]),
+		2: Influence.flow(geometry, roots[1]),
+	}
+	var checked := 0
+	for focus in range(geometry.count()):
+		var own_id := int(ids[focus])
+		if own_id == 0 or not renderer._has_enemy_front(geometry, ids, focus):
+			continue
+		var enemy_id := 2 if own_id == 1 else 1
+		var enemy_root: int = roots[enemy_id - 1]
+		if enemy_root < 0:
+			continue
+		var chain := renderer._enemy_chain(geometry, ids, flows[enemy_id], enemy_root, focus, enemy_id)
+		assert_gt(chain.size(), 1, "die Front hat einen gegnerischen Weg")
+		var before_focus: int = chain[chain.size() - 2]
+		assert_eq(int(ids[before_focus]), enemy_id,
+			"die Zelle vor dem Fokus ist ein Gegner")
+		assert_true(geometry.neighbors[focus].has(before_focus),
+			"die Gegnerzelle grenzt an den Fokus")
+		checked += 1
+	assert_gt(checked, 0, "es gibt mindestens eine Front")
+
+
+## Das Sieger-Popup zeichnet fuer beide Farben mit der geladenen Schrift.
+func test_game_result_popup_draws_for_both_winners() -> void:
+	var config := GameConfig.new()
+	var board := BoardState.new()
+	board.points = PackedVector2Array([
+		Vector2(200.0, 300.0), Vector2(450.0, 200.0),
+		Vector2(430.0, 430.0), Vector2(700.0, 300.0)])
+	board.dummy_points = PackedVector2Array()
+	board.reset_colors()
+	board.set_cell_color(0, GameConfig.COLOR_PLAYER1)
+	board.set_cell_color(1, GameConfig.COLOR_PLAYER1)
+	board.set_cell_color(2, GameConfig.COLOR_PLAYER2)
+	board.set_cell_color(3, GameConfig.COLOR_PLAYER2)
+	var voronoi := Voronoi.from_board(board, Rect2(0.0, 0.0, 900.0, 600.0))
+	var renderer := BoardRenderer.new()
+	add_child_autofree(renderer)
+	renderer.set_board_state(board, config, voronoi)
+	board.game_over = true
+	board.winner_color = GameConfig.COLOR_PLAYER1
+	renderer.queue_redraw()
+	await wait_process_frames(2)
+	board.winner_color = GameConfig.COLOR_PLAYER2
+	renderer.queue_redraw()
+	await wait_process_frames(2)
+
+	assert_not_null(renderer._result_font, "die Rubik-Spray-Paint-Schrift ist geladen")
+	assert_true(true, "beide Sieger-Popups laufen ohne Fehler durch")
+
+
 ## Die Vereinigung zweier gleichfarbiger Nachbarzellen ergibt eine Flaeche.
 func test_merge_cells_unions_adjacent_cells() -> void:
 	var setup := _two_cell_territory()

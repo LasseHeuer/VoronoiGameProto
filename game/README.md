@@ -45,7 +45,7 @@ greift erst beim Neustart.
 godot --headless --path game -s addons/gut/gut_cmdln.gd -gdir=res://tests/unit -gexit
 ```
 
-Aktueller Stand: 144 Tests / 36014 Asserts, alle gruen.
+Aktueller Stand: 164 Tests / 36256 Asserts, alle gruen.
 Abgedeckt: Geometrie, Delaunay, Voronoi (inkl. Robustheit ueber mehrere
 Bretter und Ticks), Territorien/Zugwechsel, schrittweiser Farbwechsel,
 durchgehende Territoriums-Grenzen beim Drag, Zeichnen eines kompletten
@@ -80,13 +80,14 @@ scenes/    Main (verdrahtet), BoardView, SettingsPanel
 scripts/
   app/     game_app.gd (Takt + Verdrahtung), config.gd, settings_store.gd
   core/    geometry.gd, delaunay.gd, voronoi.gd, board.gd, rng.gd
-  sim/     territories.gd, cell_geometry.gd, color_steps.gd,
+  sim/     territories.gd, cell_geometry.gd, influence.gd, color_steps.gd,
            relaxation.gd, turns.gd
   audio/   audio_setup.gd, waveform_bank.gd, voice_pool.gd, synth.gd
   input/   board_input.gd
   view/    board_renderer.gd, board_transform.gd, halftone_overlay.gd
   ui/      settings_panel.gd, gear_button.gd
-shaders/   halftone.gdshader (Halbtonraster)
+shaders/   halftone.gdshader (CMYK-Halbton)
+assets/    halftone_pattern.png (Streumuster des Halbtons)
 tests/unit/  GUT-Tests (test_geometry, test_delaunay, test_voronoi,
              test_territories, test_relaxation, test_settings,
              test_synth, test_view, test_board_input, test_color_steps,
@@ -203,9 +204,19 @@ stimmen vollstaendig ueberein.
 - **Zahlen anzeigen** ist ein neuer Schalter (Standard: aus). Er blendet die
   Flaechenzahlen in den Zellen ein; das Original zeigte sie immer.
 - **Flow anzeigen** zeigt fuer die aktuelle Hover- oder Drag-Zelle die
-  Vererbungswege von den groessten Spielerzellen samt Staerke an. Bei einer
-  gegnerischen Front wird auch der gegnerische Flow dargestellt. Mit **Flows
-  fuer alle Zellen** werden die Wege fuer alle echten Zellen eingeblendet.
+  Vererbungswege von den groessten Spielerzellen samt Staerke an. Die Linien
+  liegen auf den Mittelpunkten der gemeinsamen Zellgrenzen und laufen als
+  weiche Kurve durch diese Punkte. Bei einer gegnerischen Front wird auch der
+  gegnerische Flow dargestellt; er beginnt an der tatsaechlich angrenzenden
+  Gegnerzelle. Linien und Zellwert gibt es nur fuer die Hover-Zelle. Mit
+  **Flows fuer alle Zellen** steht zusaetzlich an jeder Grenze der vererbte
+  Wert.
+- **Staerkevererbung** ersetzt das Uebernehmen des groessten Nachbarn: von der
+  groessten Zelle eines Spielers (Startwert 100) fliesst Staerke ueber die
+  gemeinsamen Grenzen. Groessere Nachbarzellen und laengere Grenzen geben mehr
+  weiter. Unter der Mindeststaerke wird der Wert 0; erreicht kein Spieler eine
+  Zelle, bleibt sie neutral und grau und gehoert keinem Spieler. Sonst besitzt
+  der Spieler mit der groesseren Staerke die Zelle.
 - **Uebernahme-Warnung** ist neu: Kurz vor einem Farbwechsel blinken
   gefaehrdete Zellen. Je naeher der gegnerische Flaechenanteil am Kipp-Punkt
   liegt, desto schneller blinkt die Warnung.
@@ -256,11 +267,13 @@ stimmen vollstaendig ueberein.
 - **Schrittweiser Verlust**: Mehrere Farbwechsel laufen nacheinander im
   Abstand des Reglers "Verlust-Schritt (ms)" (Standard 25 ms). So ist zu
   sehen, wie die Zellen eine nach der anderen fallen.
-- **Halbtonraster**: Ein bildschirmweiter Effekt (`shaders/halftone.gdshader`,
-  gesteuert von `view/halftone_overlay.gd`) legt ein farbiges Punktraster ueber
-  das Spiel. Die Punktgroesse folgt der Helligkeit jedes Farbkanals, die
-  Kanaele koennen gegeneinander verdreht werden (Farbtrennung), und die
-  Zwischenraeume werden Richtung Papierton aufgehellt. Das Rechteck liegt unter
-  dem Einstellungsmenue, deshalb bleiben die Einstellungen ungerastert. Alle
-  Werte stehen als Regler in der Gruppe "Halbton" und wirken ohne Neustart;
+- **CMYK-Halbton**: Ein bildschirmweiter Effekt (`shaders/halftone.gdshader`,
+  gesteuert von `view/halftone_overlay.gd`, nach dem "Canvas Item Halftone
+  Shader" von OskarGosbol) zerlegt das Spiel in CMYK. Jede Druckfarbe bekommt
+  ein eigenes, gedrehtes Punktraster, die Punkte liegen auf weissem Papier. Die
+  Punktschwelle kommt aus einem Streumuster, das entweder beim Start im Code
+  erzeugt oder als `assets/halftone_pattern.png` geladen wird; der Regler
+  "Streumuster" waehlt die Quelle. Das Rechteck liegt unter dem
+  Einstellungsmenue, deshalb bleiben die Einstellungen ungerastert. Alle Werte
+  stehen als Regler in der Gruppe "Halbton" und wirken ohne Neustart;
   "Halbtonraster" schaltet den Effekt ganz aus.

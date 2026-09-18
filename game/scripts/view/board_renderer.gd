@@ -17,6 +17,8 @@ var view_transform := BoardTransform.new()
 var highlight_cells := {}
 
 var _font: Font
+## Schrift fuer die Sieger-Anzeige (Rubik Spray Paint).
+var _result_font: Font
 ## Fuellfarbe je Zelle (Flaechenanteil und Gegneranteil), einmal je Frame.
 var _fill_colors := PackedStringArray()
 ## Konturen der Territorien (Fensterkoordinaten) je Farbe.
@@ -46,6 +48,9 @@ var _uvs3 := PackedVector2Array([Vector2.ZERO, Vector2.ZERO, Vector2.ZERO])
 
 func _ready() -> void:
 	_font = ThemeDB.fallback_font
+	_result_font = load("res://assets/RubikSprayPaint-Regular.ttf")
+	if _result_font == null:
+		_result_font = _font
 
 
 func set_board_state(p_board: BoardState, p_config: GameConfig, p_voronoi: Voronoi) -> void:
@@ -100,14 +105,18 @@ func _draw_stamina_bars() -> void:
 	var ratio2 := clampf(board.stamina_player2 / max_stamina, 0.0, 1.0)
 	var rect1 := Rect2(margin, y, bar_width, bar_height)
 	var rect2 := Rect2(viewport_size.x - margin - bar_width, y, bar_width, bar_height)
-	_draw_stamina_bar(rect1, ratio1, GameConfig.COLOR_PLAYER1)
-	_draw_stamina_bar(rect2, ratio2, GameConfig.COLOR_PLAYER2)
+	_draw_stamina_bar(rect1, ratio1, GameConfig.COLOR_PLAYER1, false)
+	_draw_stamina_bar(rect2, ratio2, GameConfig.COLOR_PLAYER2, true)
 
 
-func _draw_stamina_bar(rect: Rect2, ratio: float, color: String) -> void:
+func _draw_stamina_bar(rect: Rect2, ratio: float, color: String, from_right: bool) -> void:
 	_draw_rounded_rect(rect, Color(color, 0.2), 4.0)
 	if ratio > 0.0:
-		_draw_rounded_rect(Rect2(rect.position, Vector2(rect.size.x * ratio, rect.size.y)), Color(color), 4.0)
+		var fill_width := rect.size.x * ratio
+		var fill_x := rect.position.x
+		if from_right:
+			fill_x = rect.position.x + rect.size.x - fill_width
+		_draw_rounded_rect(Rect2(Vector2(fill_x, rect.position.y), Vector2(fill_width, rect.size.y)), Color(color), 4.0)
 
 
 func _draw_rounded_rect(rect: Rect2, color: Color, radius: float) -> void:
@@ -126,14 +135,26 @@ func _draw_rounded_rect(rect: Rect2, color: Color, radius: float) -> void:
 
 func _draw_game_result() -> void:
 	var viewport_size := get_viewport_rect().size
-	var text := "Unentschieden"
+	var text := "unentschieden"
+	var background := Color(GameConfig.BACKGROUND_COLOR)
 	if board.winner_color == GameConfig.COLOR_PLAYER1:
-		text = "Spieler 1 gewinnt"
+		text = "rot hat gewonnen"
+		background = Color(GameConfig.COLOR_PLAYER1)
 	elif board.winner_color == GameConfig.COLOR_PLAYER2:
-		text = "Spieler 2 gewinnt"
-	var center := Vector2(viewport_size.x * 0.5, 28.0)
-	_draw_rounded_label(center, "Spiel beendet: " + text, 18, 6.0,
-		Color("#14171ce8"), Color.WHITE)
+		text = "blau hat gewonnen"
+		background = Color(GameConfig.COLOR_PLAYER2)
+	_draw_result_popup(viewport_size * 0.5, text, background)
+
+
+func _draw_result_popup(center: Vector2, label: String, background: Color) -> void:
+	var text_size := 48
+	var font := _result_font
+	var text_width := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1.0, text_size).x
+	var size := Vector2(text_width + text_size * 1.4, text_size * 1.9)
+	_draw_rounded_rect(Rect2(center - size * 0.5, size), background, 18.0)
+	var text_offset := (font.get_ascent(text_size) - font.get_descent(text_size)) * 0.5
+	draw_string(font, Vector2(center.x - text_width * 0.5, center.y + text_offset), label,
+		HORIZONTAL_ALIGNMENT_LEFT, -1.0, text_size, Color.BLACK)
 
 
 func _text_size() -> int:
@@ -779,99 +800,166 @@ func _fill_outline(index: int, screen_poly: PackedVector2Array, line_scale: floa
 	return BoardGeometry.largest_polygon(inset)
 
 
-## Flows zuletzt, damit sie weder Rahmen noch Punkte ueberdecken.
+## Flows zuletzt, damit sie weder Rahmen noch Punkte ueberdecken. Die Linien
+## liegen auf den Mittelpunkten der gemeinsamen Zellgrenzen und laufen als
+## weiche Kurve durch diese Punkte. Linien und Zellwert gibt es nur fuer die
+## Hover-/Drag-Zelle; "Flows fuer alle Zellen" blendet zusaetzlich an jeder
+## Grenze den vererbten Wert ein.
 func _draw_flows() -> void:
 	if voronoi.real_count <= 0:
 		return
 	var geometry := CellGeometry.from_voronoi(voronoi, true)
 	var ids := board.color_ids()
-	var roots := _flow_roots(geometry, ids)
-	var max_edge := _max_flow_edge(geometry)
-	var red_flow := _build_influence_flow(geometry, roots["red"], max_edge)
-	var blue_flow := _build_influence_flow(geometry, roots["blue"], max_edge)
-	var targets: Array = []
-	if config.show_all_flows:
-		for i in range(voronoi.real_count):
-			targets.append(i)
-	else:
-		var focus := board.dragged_index if board.dragged_index >= 0 else board.hovered_index
-		if focus < 0 or focus >= voronoi.real_count:
-			return
-		targets.append(focus)
-
-	var red_edges := {}
-	var blue_edges := {}
-	var label_values := PackedFloat32Array()
-	label_values.resize(voronoi.real_count)
-	label_values.fill(0.0)
-	var label_visible := PackedByteArray()
-	label_visible.resize(voronoi.real_count)
-	label_visible.fill(0)
-	for target in targets:
-		var own_id := ids[target] if target < ids.size() else 0
-		var own_flow: Dictionary = red_flow if own_id == 1 else blue_flow
-		var own_root: int = roots["red"] if own_id == 1 else roots["blue"]
-		var own_sign := -1.0 if own_id == 2 else 1.0
-		if own_root >= 0:
-			_collect_flow_path(target, own_flow, red_edges if own_id == 1 else blue_edges,
-				label_values, label_visible, not config.show_all_flows, own_sign)
-		if _has_enemy_front(geometry, ids, target):
-			var enemy_id := 2 if own_id == 1 else 1
-			var enemy_flow: Dictionary = red_flow if enemy_id == 1 else blue_flow
-			var enemy_root: int = roots["red"] if enemy_id == 1 else roots["blue"]
-			if enemy_root >= 0:
-				_collect_flow_path(target, enemy_flow,
-					red_edges if enemy_id == 1 else blue_edges, label_values, label_visible,
-					not config.show_all_flows, -1.0 if enemy_id == 2 else 1.0)
-		if config.show_all_flows:
-			var own_strengths: PackedFloat32Array = own_flow["strengths"]
-			label_values[target] = own_strengths[target] * own_sign if own_root >= 0 else 0.0
-			if _has_enemy_front(geometry, ids, target):
-				var enemy_strengths: PackedFloat32Array = red_flow["strengths"] if own_id != 1 else blue_flow["strengths"]
-				var enemy_sign := -1.0 if own_id != 1 else 1.0
-				label_values[target] += enemy_strengths[target] * enemy_sign
-			label_visible[target] = 1
-
-	var line_width := maxf(1.5, 2.0 * view_transform.scale)
-	_draw_flow_edges(red_edges, Color(GameConfig.COLOR_PLAYER1, 0.8), line_width)
-	_draw_flow_edges(blue_edges, Color(GameConfig.COLOR_PLAYER2, 0.8), line_width)
+	var roots := Influence.resolve_roots(geometry, ids, board.influence_roots())
+	var flows := {
+		1: Influence.flow(geometry, roots[0]),
+		2: Influence.flow(geometry, roots[1]),
+	}
 	var text_size := _text_size()
 	var text_offset := (_font.get_ascent(text_size) - _font.get_descent(text_size)) * 0.5
 	var point_radius := config.point_radius * view_transform.scale
-	for i in range(voronoi.real_count):
-		if label_visible[i] == 0:
+	var focus := board.dragged_index if board.dragged_index >= 0 else board.hovered_index
+	if focus >= 0 and focus < voronoi.real_count:
+		_draw_focus_flow(focus, geometry, ids, roots, flows)
+		_draw_focus_value(focus, geometry, ids, roots, flows, text_size, text_offset, point_radius)
+	if config.show_all_flows:
+		_draw_inherited_labels(geometry, ids, flows, text_size, text_offset, point_radius)
+
+
+## Flow-Linien der Hover-/Drag-Zelle: eigener Weg zur eigenen groessten Zelle
+## und, bei einer gegnerischen Front, der Weg der Gegenseite.
+func _draw_focus_flow(focus: int, geometry: CellGeometry, ids: PackedByteArray,
+		roots: PackedInt32Array, flows: Dictionary) -> void:
+	var own_id := int(ids[focus]) if focus < ids.size() else 0
+	if own_id == 0:
+		return
+	var routes := {}
+	var own_root: int = roots[own_id - 1]
+	if own_root >= 0:
+		var chain := _chain_to_root(flows[own_id]["parents"], own_root, focus)
+		if chain.size() >= 2:
+			routes[_route_key(chain)] = {"cells": chain, "color": own_id}
+	if _has_enemy_front(geometry, ids, focus):
+		var enemy_id := 2 if own_id == 1 else 1
+		var enemy_root: int = roots[enemy_id - 1]
+		if enemy_root >= 0:
+			var enemy_chain := _enemy_chain(geometry, ids, flows[enemy_id], enemy_root, focus, enemy_id)
+			if enemy_chain.size() >= 2:
+				routes[_route_key(enemy_chain)] = {"cells": enemy_chain, "color": enemy_id}
+	_draw_flow_routes(routes, maxf(1.5, 2.0 * view_transform.scale))
+
+
+## Wert der Hover-/Drag-Zelle: eigene Staerke plus gegnerischer Druck.
+func _draw_focus_value(focus: int, geometry: CellGeometry, ids: PackedByteArray,
+		roots: PackedInt32Array, flows: Dictionary, text_size: int, text_offset: float,
+		point_radius: float) -> void:
+	var own_id := int(ids[focus]) if focus < ids.size() else 0
+	if own_id == 0:
+		return
+	var own_strengths: PackedFloat32Array = flows[own_id]["strengths"]
+	var value := own_strengths[focus] * (-1.0 if own_id == 2 else 1.0)
+	if _has_enemy_front(geometry, ids, focus):
+		var enemy_id := 2 if own_id == 1 else 1
+		var enemy_strengths: PackedFloat32Array = flows[enemy_id]["strengths"]
+		value += enemy_strengths[focus] * (-1.0 if enemy_id == 2 else 1.0)
+	var poly := voronoi.cell_polygon(focus)
+	if poly.size() < 3:
+		return
+	var center := _to_screen(BoardGeometry.polygon_centroid(poly))
+	center = _move_label_away_from_point(center, _to_screen(board.points[focus]),
+		point_radius + text_size * 0.9)
+	_draw_centered_label_text(center, str(BoardGeometry.js_round(value)),
+		text_size, text_offset, Color.BLACK)
+
+
+## "Flows fuer alle Zellen": an jeder Grenze steht der Wert, den die Zelle von
+## ihrer Elternzelle geerbt hat. Das gilt fuer alle Zellen, nicht nur fuer die
+## Hover-Zelle.
+func _draw_inherited_labels(geometry: CellGeometry, ids: PackedByteArray, flows: Dictionary,
+		text_size: int, text_offset: float, point_radius: float) -> void:
+	for i in range(mini(geometry.count(), ids.size())):
+		var id := int(ids[i])
+		if id == 0:
 			continue
-		var poly := voronoi.cell_polygon(i)
-		if poly.size() < 3:
+		var flow: Dictionary = flows[id]
+		var parents: PackedInt32Array = flow["parents"]
+		var strengths: PackedFloat32Array = flow["strengths"]
+		var parent := parents[i]
+		if parent < 0 or strengths[i] <= 0.0:
 			continue
-		var center := _to_screen(BoardGeometry.polygon_centroid(poly))
-		center = _move_label_away_from_point(center, _to_screen(board.points[i]),
-			point_radius + text_size * 0.9)
-		_draw_centered_label_text(center, str(BoardGeometry.js_round(label_values[i])),
-			text_size, text_offset, Color.BLACK)
-
-
-func _flow_roots(geometry: CellGeometry, ids: PackedByteArray) -> Dictionary:
-	var red := -1
-	var blue := -1
-	for i in range(geometry.count()):
-		if i >= ids.size():
+		var scaled := BoardGeometry.js_round(strengths[i] * (-1.0 if id == 2 else 1.0))
+		if scaled == 0:
 			continue
-		if ids[i] == 1 and (red < 0 or geometry.areas[i] > geometry.areas[red]):
-			red = i
-		elif ids[i] == 2 and (blue < 0 or geometry.areas[i] > geometry.areas[blue]):
-			blue = i
-	return {"red": red, "blue": blue}
+		var label := ("+" if scaled > 0 else "") + str(scaled)
+		_draw_inherited_label(i, parent, label, text_size, text_offset, point_radius)
 
 
-func _max_flow_edge(geometry: CellGeometry) -> float:
-	var max_edge := 0.0
-	for lengths in geometry.edge_lengths:
-		for edge in lengths.values():
-			max_edge = maxf(max_edge, float(edge))
-	return maxf(max_edge, 0.001)
+## Vererbter Wert an der gemeinsamen Grenze, leicht zur Kindzelle versetzt.
+func _draw_inherited_label(child: int, parent: int, label: String, text_size: int,
+		text_offset: float, point_radius: float) -> void:
+	var midpoint := _to_screen(_boundary_midpoint(child, parent))
+	var toward_child := _to_screen(board.points[child]) - midpoint
+	if toward_child.length_squared() < 0.0001:
+		toward_child = Vector2.UP
+	else:
+		toward_child = toward_child.normalized()
+	var position := midpoint + toward_child * maxf(4.0, text_size * 0.6)
+	position = _move_label_away_from_point(position, _to_screen(board.points[child]),
+		point_radius + text_size * 0.9)
+	_draw_centered_label_text(position, label, text_size, text_offset, Color.BLACK)
 
 
+## Weg Wurzel -> node ueber die Elternkette. Leer, wenn die Kette die Wurzel
+## nicht erreicht.
+func _chain_to_root(parents: PackedInt32Array, root: int, node: int) -> PackedInt32Array:
+	var chain: Array = []
+	var current := node
+	var guard := 0
+	while current >= 0 and current < parents.size() and guard <= parents.size():
+		chain.append(current)
+		if current == root:
+			break
+		current = parents[current]
+		guard += 1
+	if chain.is_empty() or int(chain[chain.size() - 1]) != root:
+		return PackedInt32Array()
+	chain.reverse()
+	return PackedInt32Array(chain)
+
+
+## Gegnerischer Weg. Die erste Zelle nach dem Fokus ist ein tatsaechlich
+## angrenzender Gegner; erst danach folgt dessen Elternkette zur gegnerischen
+## Wurzel. So laeuft der gegnerische Flow nicht ueber gleichfarbige Zellen.
+func _enemy_chain(geometry: CellGeometry, ids: PackedByteArray, enemy_flow: Dictionary,
+		enemy_root: int, focus: int, enemy_id: int) -> PackedInt32Array:
+	var strengths: PackedFloat32Array = enemy_flow["strengths"]
+	var best := -1
+	var best_value := -1.0
+	for neighbor in geometry.neighbors[focus]:
+		if neighbor < 0 or neighbor >= ids.size() or int(ids[neighbor]) != enemy_id:
+			continue
+		var value := strengths[neighbor] if neighbor < strengths.size() else 0.0
+		if value > best_value:
+			best_value = value
+			best = neighbor
+	if best < 0:
+		return PackedInt32Array()
+	var chain := _chain_to_root(enemy_flow["parents"], enemy_root, best)
+	if chain.is_empty():
+		return PackedInt32Array()
+	var out := chain.duplicate()
+	out.append(focus)
+	return out
+
+
+func _route_key(cells: PackedInt32Array) -> String:
+	var key := ""
+	for cell in cells:
+		key += str(cell) + ","
+	return key
+
+
+## Grenzt die Zelle an einen andersfarbigen Spieler?
 func _has_enemy_front(geometry: CellGeometry, ids: PackedByteArray, cell: int) -> bool:
 	if cell < 0 or cell >= ids.size() or ids[cell] == 0:
 		return false
@@ -882,27 +970,61 @@ func _has_enemy_front(geometry: CellGeometry, ids: PackedByteArray, cell: int) -
 	return false
 
 
-func _collect_flow_path(target: int, flow: Dictionary, edges: Dictionary,
-		labels: PackedFloat32Array, visible: PackedByteArray, add_labels: bool, sign: float) -> void:
-	var parents: PackedInt32Array = flow["parents"]
-	var strengths: PackedFloat32Array = flow["strengths"]
-	var current := target
-	while current >= 0 and current < parents.size():
-		if add_labels:
-			labels[current] += maxf(strengths[current], 0.0) * sign
-			visible[current] = 1
-		var parent := parents[current]
-		if parent < 0:
-			break
-		edges[parent * parents.size() + current] = [parent, current]
-		current = parent
+func _draw_flow_routes(routes: Dictionary, width: float) -> void:
+	for route in routes.values():
+		var cells: PackedInt32Array = route["cells"]
+		var color := Color(GameConfig.COLOR_PLAYER1, 0.8) if int(route["color"]) == 1 \
+			else Color(GameConfig.COLOR_PLAYER2, 0.8)
+		var points := _flow_route_points(cells)
+		if points.size() < 2:
+			continue
+		draw_polyline(_to_screen_polygon(_smooth_flow_path(points)), color, width, true)
 
 
-func _draw_flow_edges(edges: Dictionary, color: Color, width: float) -> void:
-	for edge in edges.values():
-		var from: int = edge[0]
-		var to: int = edge[1]
-		draw_line(_to_screen(board.points[from]), _to_screen(board.points[to]), color, width, true)
+## Grenzmittelpunkte entlang einer Zellfolge (Brettkoordinaten).
+func _flow_route_points(cells: PackedInt32Array) -> PackedVector2Array:
+	var points := PackedVector2Array()
+	for k in range(cells.size() - 1):
+		points.append(_boundary_midpoint(cells[k], cells[k + 1]))
+	return points
+
+
+## Mittelpunkt der gemeinsamen Grenze zweier Zellen.
+func _boundary_midpoint(first: int, second: int) -> Vector2:
+	var poly := voronoi.cell_polygon(first)
+	if poly.size() >= 3:
+		var neighbors := voronoi.edge_neighbors(first)
+		for k in range(poly.size()):
+			if k < neighbors.size() and int(neighbors[k]) == second:
+				return (poly[k] + poly[(k + 1) % poly.size()]) * 0.5
+	return (board.points[first] + board.points[second]) * 0.5
+
+
+## Weicher Verlauf durch die Grenzmittelpunkte (Catmull-Rom). So entsteht ein
+## runder Flow statt eines Zickzacks.
+func _smooth_flow_path(points: PackedVector2Array) -> PackedVector2Array:
+	var count := points.size()
+	if count < 3:
+		return points
+	var out := PackedVector2Array()
+	var steps := 10
+	for i in range(count - 1):
+		var p0 := points[maxi(i - 1, 0)]
+		var p1 := points[i]
+		var p2 := points[i + 1]
+		var p3 := points[mini(i + 2, count - 1)]
+		for s in range(steps):
+			out.append(_catmull_rom(p0, p1, p2, p3, float(s) / float(steps)))
+	out.append(points[count - 1])
+	return out
+
+
+static func _catmull_rom(p0: Vector2, p1: Vector2, p2: Vector2, p3: Vector2, t: float) -> Vector2:
+	var t2 := t * t
+	var t3 := t2 * t
+	return 0.5 * (2.0 * p1 + (-p0 + p2) * t
+		+ (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t2
+		+ (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * t3)
 
 
 ## Relative Einflusswerte zuletzt, damit sie weder Rahmen noch Punkte ueberdecken.
@@ -952,9 +1074,9 @@ func _draw_all_cell_ratios() -> void:
 			text_offset, Color.BLACK)
 
 
-## Die groesste rote und blaue Zelle sind die beiden Referenzpunkte (+100/-100).
-## Beide Werte werden ueber bekannte Kanten weitergegeben und gegeneinander
-## verrechnet. Dadurch liegen umkaempfte Zellen nahe null.
+## Staerkeueberschuss je Zelle: rot positiv, blau negativ (+100/-100 an den
+## Wurzelzellen). Ein Wert nahe null bedeutet, dass der Einfluss beider Spieler
+## fast gleich gross ist und die Zelle bald kippt.
 func _cell_influence_values(geometry: CellGeometry, ids: PackedByteArray) -> PackedFloat32Array:
 	var count := geometry.count()
 	var values := PackedFloat32Array()
@@ -962,99 +1084,13 @@ func _cell_influence_values(geometry: CellGeometry, ids: PackedByteArray) -> Pac
 	values.fill(0.0)
 	if count == 0:
 		return values
-	var red_root := -1
-	var blue_root := -1
+	var roots := Influence.resolve_roots(geometry, ids, board.influence_roots())
+	var red_influence: PackedFloat32Array = Influence.flow(geometry, roots[0])["strengths"]
+	var blue_influence: PackedFloat32Array = Influence.flow(geometry, roots[1])["strengths"]
 	for i in range(count):
-		if i >= ids.size():
-			continue
-		if ids[i] == 1 and (red_root < 0 or geometry.areas[i] > geometry.areas[red_root]):
-			red_root = i
-		elif ids[i] == 2 and (blue_root < 0 or geometry.areas[i] > geometry.areas[blue_root]):
-			blue_root = i
-	var max_edge := 0.0
-	for lengths in geometry.edge_lengths:
-		for edge in lengths.values():
-			max_edge = maxf(max_edge, float(edge))
-	max_edge = maxf(max_edge, 0.001)
-	var red_influence := _propagate_influence(geometry, red_root, max_edge)
-	var blue_influence := _propagate_influence(geometry, blue_root, max_edge)
-	for i in range(count):
-		var red_value := red_influence[i] if red_influence[i] >= 0.0 else 0.0
-		var blue_value := blue_influence[i] if blue_influence[i] >= 0.0 else 0.0
-		var combined := clampf(red_value - blue_value, -100.0, 100.0)
-		if i < ids.size() and ids[i] == 1:
-			values[i] = maxf(0.0, combined)
-		elif i < ids.size() and ids[i] == 2:
-			values[i] = minf(0.0, combined)
-		else:
-			values[i] = combined
-	if red_root >= 0:
-		values[red_root] = 100.0
-	if blue_root >= 0:
-		values[blue_root] = -100.0
+		values[i] = clampf(red_influence[i] - blue_influence[i],
+			-GameConfig.INFLUENCE_START_STRENGTH, GameConfig.INFLUENCE_START_STRENGTH)
 	return values
-
-
-func _build_influence_flow(geometry: CellGeometry, source: int, max_edge: float) -> Dictionary:
-	var count := geometry.count()
-	var scores := PackedFloat32Array()
-	scores.resize(count)
-	scores.fill(-1.0)
-	var parents := PackedInt32Array()
-	parents.resize(count)
-	parents.fill(-1)
-	if source < 0 or source >= count:
-		return {"strengths": scores, "parents": parents}
-
-	# Berechne die kuerzesten gewichteten Wege statt den Einfluss bei jedem
-	# Nachbarn erneut zu multiplizieren. Dadurch bleiben auch entfernte Zellen
-	# aussagekraeftig; grosse Zellen senken die Wegkosten zusaetzlich.
-	var area_sum := 0.0
-	for area in geometry.areas:
-		area_sum += maxf(float(area), 0.01)
-	var average_area := maxf(area_sum / maxf(float(count), 1.0), 0.01)
-	var distances := PackedFloat32Array()
-	distances.resize(count)
-	distances.fill(INF)
-	distances[source] = 0.0
-	var queue: Array = [[0.0, source]]
-	while not queue.is_empty():
-		queue.sort_custom(func(a, b): return float(a[0]) < float(b[0]))
-		var node: Array = queue.pop_front()
-		var current_distance: float = node[0]
-		var current: int = node[1]
-		if current_distance > distances[current] + 0.000001:
-			continue
-		for neighbor in geometry.neighbors[current]:
-			if neighbor < 0 or neighbor >= count:
-				continue
-			var edge := float(geometry.edge_lengths[current].get(neighbor, 0.0))
-			if edge <= 0.0:
-				continue
-			var edge_strength := lerpf(0.75, 1.0, clampf(edge / max_edge, 0.0, 1.0))
-			var area_strength := sqrt(maxf(float(geometry.areas[neighbor]), 0.01) / average_area)
-			area_strength = clampf(area_strength, 0.75, 1.35)
-			var cost := (1.0 / edge_strength) / area_strength
-			var candidate := current_distance + cost
-			if candidate < distances[neighbor]:
-				distances[neighbor] = candidate
-				parents[neighbor] = current
-				queue.append([candidate, neighbor])
-
-	var max_distance := 0.0
-	for distance in distances:
-		if distance < INF * 0.5:
-			max_distance = maxf(max_distance, float(distance))
-	for i in range(count):
-		if distances[i] >= INF * 0.5:
-			continue
-		var normalized := distances[i] / maxf(max_distance, 0.000001)
-		scores[i] = lerpf(100.0, 35.0, clampf(normalized, 0.0, 1.0))
-	return {"strengths": scores, "parents": parents}
-
-
-func _propagate_influence(geometry: CellGeometry, source: int, max_edge: float) -> PackedFloat32Array:
-	return _build_influence_flow(geometry, source, max_edge)["strengths"]
 
 
 func _draw_relative_label(index: int, value: float, poly: PackedVector2Array,
