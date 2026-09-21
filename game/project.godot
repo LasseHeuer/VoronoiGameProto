@@ -14,6 +14,7 @@ config_version=5
 
 config/name="Voronoi Game"
 config/description="Voronoi-Flaechenspiel mit audio-getriebener Ausbreitung."
+config/icon="res://assets/favicon.svg"
 run/main_scene="res://scenes/Main.tscn"
 config/features=PackedStringArray("4.6", "GL Compatibility")
 
