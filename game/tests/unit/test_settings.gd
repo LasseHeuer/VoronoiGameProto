@@ -34,33 +34,33 @@ func test_defaults_match_the_reference_values() -> void:
 	assert_almost_eq(config.attack, 0.05, 0.0001)
 	assert_almost_eq(config.decay, 0.2, 0.0001)
 	assert_almost_eq(config.sustain, 0.2, 0.0001)
-	assert_almost_eq(config.release, 0.1, 0.0001)
-	assert_almost_eq(config.cutoff, 500.0, 0.0001)
-	assert_almost_eq(config.drag_tone_volume, 0.2, 0.0001)
+	assert_almost_eq(config.release, 0.72, 0.0001)
+	assert_almost_eq(config.cutoff, 340.0, 0.0001)
+	assert_almost_eq(config.drag_tone_volume, 0.3, 0.0001)
 	assert_almost_eq(config.drag_neighbor_factor, 0.25, 0.0001)
-	assert_almost_eq(config.freq_threshold, 0.2, 0.0001)
-	assert_almost_eq(config.spread_time, 0.6, 0.0001)
-	assert_eq(config.spread_depth, 2)
-	assert_eq(config.cell_count, 16)
+	assert_almost_eq(config.freq_threshold, 0.19, 0.0001)
+	assert_almost_eq(config.spread_time, 0.071, 0.0001)
+	assert_eq(config.spread_depth, 3)
+	assert_eq(config.cell_count, 3)
 	assert_almost_eq(config.influence_start_strength, 100.0, 0.0001)
-	assert_almost_eq(config.push_factor, 0.2, 0.0001)
-	assert_almost_eq(config.push_radius, 40.0, 0.0001)
-	assert_almost_eq(config.border_margin, 50.0, 0.0001)
-	assert_almost_eq(config.weight_influence, 1.0, 0.0001)
+	assert_almost_eq(config.push_factor, 0.25, 0.0001)
+	assert_almost_eq(config.push_radius, 50.0, 0.0001)
+	assert_almost_eq(config.border_margin, 84.0, 0.0001)
+	assert_almost_eq(config.weight_influence, 0.95, 0.0001)
 	assert_almost_eq(config.point_radius, 8.0, 0.0001)
 	assert_true(config.alternating_moves)
 	assert_true(config.dummy_points)
 
 
-func test_cell_numbers_are_hidden_by_default() -> void:
+func test_cell_numbers_are_shown_by_default() -> void:
 	var config := GameConfig.new()
-	assert_false(config.show_cell_numbers, "die Flaechenzahlen starten ausgeblendet")
+	assert_true(config.show_cell_numbers, "die Flaechenzahlen starten eingeblendet")
 	assert_true(GameConfig.DEFAULTS.has("show_cell_numbers"))
 
 
 func test_loss_step_default() -> void:
 	var config := GameConfig.new()
-	assert_almost_eq(config.loss_step_ms, 25.0, 0.0001, "Verlust-Schritt startet bei 25 ms")
+	assert_almost_eq(config.loss_step_ms, 125.0, 0.0001, "Verlust-Schritt startet bei 125 ms")
 	assert_true(GameConfig.DEFAULTS.has("loss_step_ms"))
 
 
@@ -71,7 +71,7 @@ func test_reset_to_defaults() -> void:
 	config.dummy_points = false
 	config.reset_to_defaults()
 	assert_almost_eq(config.attack, 0.05, 0.0001)
-	assert_eq(config.cell_count, 16)
+	assert_eq(config.cell_count, 3)
 	assert_true(config.dummy_points)
 
 

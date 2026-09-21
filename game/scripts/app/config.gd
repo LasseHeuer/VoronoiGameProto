@@ -24,7 +24,7 @@ const PLAYER2_STEP_COLORS := [COLOR_PLAYER2, "#37BFFF", "#37E6FF"]
 
 ## Zelle ohne Spielerfarbe oder mit zu geringem Zufluss: mittleres
 ## Neutralgrau. Ueber die Einstellung "Neutralgrau" aenderbar.
-const CELL_EMPTY_COLOR := "#808080"
+const CELL_EMPTY_COLOR := "#a497aa"
 
 # ------------------------------------------------- feste Spielkonstanten ---
 const DRAG_RADIUS := 10.0
@@ -114,51 +114,51 @@ const FALLBACK_FREQ := 220.0
 @export var attack: float = 0.05
 @export var decay: float = 0.2
 @export var sustain: float = 0.2
-@export var release: float = 0.1
-@export var cutoff: float = 500.0
+@export var release: float = 0.72
+@export var cutoff: float = 340.0
 ## Anzahl zusaetzlicher Oktaven fuer alle Zelltoene.
-@export var octave_shift: int = 1
+@export var octave_shift: int = 2
 
-@export var drag_tone_volume: float = 0.2
+@export var drag_tone_volume: float = 0.3
 @export var drag_neighbor_factor: float = 0.25
 
-@export var freq_threshold: float = 0.2
-@export var spread_time: float = 0.6
-@export var spread_depth: int = 2
+@export var freq_threshold: float = 0.19
+@export var spread_time: float = 0.071
+@export var spread_depth: int = 3
 
-@export var cell_count: int = 16
+@export var cell_count: int = 3
 
 ## Tonmenge der groessten Zelle des Bretts (Kraftverteilung).
 @export var influence_start_strength: float = 100.0
 
-@export var push_factor: float = 0.2
-@export var push_radius: float = 40.0
-@export var border_margin: float = 50.0
-@export var weight_influence: float = 1.0
+@export var push_factor: float = 0.25
+@export var push_radius: float = 50.0
+@export var border_margin: float = 84.0
+@export var weight_influence: float = 0.95
 
 @export var alternating_moves: bool = true
 ## Ausdauer je Spieler; ein Pixel Drag-Strecke verbraucht einen Punkt.
 @export var stamina: float = 1000.0
 @export var dummy_points: bool = true
-## Flaechenzahlen in den Zellen anzeigen (beim Start aus).
-@export var show_cell_numbers: bool = false
+## Flaechenzahlen in den Zellen anzeigen (beim Start an).
+@export var show_cell_numbers: bool = true
 ## Vererbungswege der aktuellen oder aller Zellen anzeigen.
-@export var show_flow: bool = false
+@export var show_flow: bool = true
 ## Gegenseitige Einflusswerte aller Zellen anzeigen.
-@export var show_all_cell_numbers: bool = false
+@export var show_all_cell_numbers: bool = true
 ## Kraftfeld-Pfeile: Breite und Gesamtlaenge in Brettpixeln.
-@export var flow_arrow_width: float = 6.0
-@export var flow_arrow_length: float = 28.0
+@export var flow_arrow_width: float = 22.5
+@export var flow_arrow_length: float = 95.0
 ## Schriftgroesse der Fliessmenge auf den Kraftfeld-Pfeilen (Brettpixel).
-@export var flow_label_size: float = 18.0
+@export var flow_label_size: float = 16.0
 ## Abstand zwischen zwei Farbwechseln, wenn Zellen verloren gehen (ms).
-@export var loss_step_ms: float = 25.0
+@export var loss_step_ms: float = 125.0
 ## Zeit, um eine waehrend des Drags verlorene Zelle zu retten (ms).
-@export var loss_rescue_ms: float = 1000.0
+@export var loss_rescue_ms: float = 1200.0
 ## Radius, mit dem die Territoriums-Grenze abgerundet wird (Brettpixel).
-@export var corner_radius: float = 8.0
+@export var corner_radius: float = 22.5
 ## Optischer Abstand zwischen Zellfuellungen, ohne Einfluss auf die Geometrie.
-@export var cell_gap: float = 0.0
+@export var cell_gap: float = 2.0
 ## Gemeinsame Grenzlinien unterhalb dieser Laenge erhalten kein Zahlenlabel.
 @export var boundary_label_threshold: float = 10.0
 ## Radius der Zellpunkte in Brettpixeln.
@@ -172,21 +172,21 @@ const FALLBACK_FREQ := 220.0
 @export var halftone_enabled: bool = true
 ## Quelle des Streumusters: "code" erzeugt es beim Start, "asset" laedt die
 ## PNG-Datei aus game/assets.
-@export var halftone_pattern: String = "code"
+@export var halftone_pattern: String = "asset"
 ## Rasterweite: Anzahl der Musterwiederholungen ueber den Bildschirm.
-@export var halftone_pattern_scaling: float = 6.0
+@export var halftone_pattern_scaling: float = 25.0
 ## Qualitaet der Mehrfachabtastung (hoeher = glatter, aber langsamer).
-@export var halftone_sampling_quality: float = 0.5
+@export var halftone_sampling_quality: float = 1.0
 ## Rasterwinkel je Druckfarbe in Grad.
 @export var halftone_cyan_rotation: float = 0.0
 @export var halftone_magenta_rotation: float = 15.0
 @export var halftone_yellow_rotation: float = 30.0
 @export var halftone_black_rotation: float = 45.0
 ## Zusaetzlicher Farbauszug je Druckfarbe in Grad.
-@export var halftone_cyan_offset_rotation: float = 0.0
-@export var halftone_magenta_offset_rotation: float = 0.0
-@export var halftone_yellow_offset_rotation: float = 0.0
-@export var halftone_black_offset_rotation: float = 0.0
+@export var halftone_cyan_offset_rotation: float = -0.02
+@export var halftone_magenta_offset_rotation: float = 0.1
+@export var halftone_yellow_offset_rotation: float = 0.2
+@export var halftone_black_offset_rotation: float = 0.1
 ## Helligkeitsschwelle, unter der Bildpunkte als durchsichtig gelten.
 @export var halftone_alpha_threshold: float = 0.5
 ## Druckdeckkraft je Druckfarbe: 0 = kein Farbauftrag, 1 = volle Deckung.
@@ -196,15 +196,15 @@ const FALLBACK_FREQ := 220.0
 @export var halftone_black_ink: float = 1.0
 ## Staerke der Rauschtextur auf der Deckkraft: 0 = gleichmaessiger Auftrag.
 ## Jede Druckfarbe hat eigene Werte, damit die Kanaele unabhaengig streuen.
-@export var halftone_cyan_noise_strength: float = 0.0
-@export var halftone_magenta_noise_strength: float = 0.0
-@export var halftone_yellow_noise_strength: float = 0.0
-@export var halftone_black_noise_strength: float = 0.0
+@export var halftone_cyan_noise_strength: float = 0.3
+@export var halftone_magenta_noise_strength: float = 0.24
+@export var halftone_yellow_noise_strength: float = 0.3
+@export var halftone_black_noise_strength: float = 0.18
 ## Wiederholungen der Rauschtextur ueber den Bildschirm, je Druckfarbe.
-@export var halftone_cyan_noise_scaling: float = 4.0
-@export var halftone_magenta_noise_scaling: float = 4.0
-@export var halftone_yellow_noise_scaling: float = 4.0
-@export var halftone_black_noise_scaling: float = 4.0
+@export var halftone_cyan_noise_scaling: float = 0.52
+@export var halftone_magenta_noise_scaling: float = 1.14
+@export var halftone_yellow_noise_scaling: float = 2.37
+@export var halftone_black_noise_scaling: float = 0.93
 
 @export var random_seed: int = 0
 
@@ -297,61 +297,61 @@ const DEFAULTS := {
 	"attack": 0.05,
 	"decay": 0.2,
 	"sustain": 0.2,
-	"release": 0.1,
-	"cutoff": 500.0,
-	"octave_shift": 1,
-	"drag_tone_volume": 0.2,
+	"release": 0.72,
+	"cutoff": 340.0,
+	"octave_shift": 2,
+	"drag_tone_volume": 0.3,
 	"drag_neighbor_factor": 0.25,
-	"freq_threshold": 0.2,
-	"spread_time": 0.6,
-	"spread_depth": 2,
-	"cell_count": 16,
+	"freq_threshold": 0.19,
+	"spread_time": 0.071,
+	"spread_depth": 3,
+	"cell_count": 3,
 	"influence_start_strength": 100.0,
-	"push_factor": 0.2,
-	"push_radius": 40.0,
-	"border_margin": 50.0,
-	"weight_influence": 1.0,
+	"push_factor": 0.25,
+	"push_radius": 50.0,
+	"border_margin": 84.0,
+	"weight_influence": 0.95,
 	"stamina": 1000.0,
-	"loss_step_ms": 25.0,
-	"loss_rescue_ms": 1000.0,
-	"corner_radius": 8.0,
-	"cell_gap": 0.0,
+	"loss_step_ms": 125.0,
+	"loss_rescue_ms": 1200.0,
+	"corner_radius": 22.5,
+	"cell_gap": 2.0,
 	"point_radius": 8.0,
-	"cell_empty_color": "#808080",
+	"cell_empty_color": "#a497aa",
 	"alternating_moves": true,
 	"dummy_points": true,
-	"show_cell_numbers": false,
-	"show_flow": false,
-	"show_all_cell_numbers": false,
-	"flow_arrow_width": 6.0,
-	"flow_arrow_length": 28.0,
-	"flow_label_size": 18.0,
+	"show_cell_numbers": true,
+	"show_flow": true,
+	"show_all_cell_numbers": true,
+	"flow_arrow_width": 22.5,
+	"flow_arrow_length": 95.0,
+	"flow_label_size": 16.0,
 	"boundary_label_threshold": 10.0,
 	"halftone_enabled": true,
-	"halftone_pattern": "code",
-	"halftone_pattern_scaling": 6.0,
-	"halftone_sampling_quality": 0.5,
+	"halftone_pattern": "asset",
+	"halftone_pattern_scaling": 25.0,
+	"halftone_sampling_quality": 1.0,
 	"halftone_cyan_rotation": 0.0,
 	"halftone_magenta_rotation": 15.0,
 	"halftone_yellow_rotation": 30.0,
 	"halftone_black_rotation": 45.0,
-	"halftone_cyan_offset_rotation": 0.0,
-	"halftone_magenta_offset_rotation": 0.0,
-	"halftone_yellow_offset_rotation": 0.0,
-	"halftone_black_offset_rotation": 0.0,
+	"halftone_cyan_offset_rotation": -0.02,
+	"halftone_magenta_offset_rotation": 0.1,
+	"halftone_yellow_offset_rotation": 0.2,
+	"halftone_black_offset_rotation": 0.1,
 	"halftone_alpha_threshold": 0.5,
 	"halftone_cyan_ink": 1.0,
 	"halftone_magenta_ink": 1.0,
 	"halftone_yellow_ink": 1.0,
 	"halftone_black_ink": 1.0,
-	"halftone_cyan_noise_strength": 0.0,
-	"halftone_magenta_noise_strength": 0.0,
-	"halftone_yellow_noise_strength": 0.0,
-	"halftone_black_noise_strength": 0.0,
-	"halftone_cyan_noise_scaling": 4.0,
-	"halftone_magenta_noise_scaling": 4.0,
-	"halftone_yellow_noise_scaling": 4.0,
-	"halftone_black_noise_scaling": 4.0,
+	"halftone_cyan_noise_strength": 0.3,
+	"halftone_magenta_noise_strength": 0.24,
+	"halftone_yellow_noise_strength": 0.3,
+	"halftone_black_noise_strength": 0.18,
+	"halftone_cyan_noise_scaling": 0.52,
+	"halftone_magenta_noise_scaling": 1.14,
+	"halftone_yellow_noise_scaling": 2.37,
+	"halftone_black_noise_scaling": 0.93,
 }
 
 func _init() -> void:
