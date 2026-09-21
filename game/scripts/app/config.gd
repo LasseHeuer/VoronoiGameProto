@@ -22,8 +22,9 @@ const BACKGROUND_COLOR := "#AEA2B9"
 const PLAYER1_STEP_COLORS := [COLOR_PLAYER1, "#FF9945", "#FFCF6A"]
 const PLAYER2_STEP_COLORS := [COLOR_PLAYER2, "#37BFFF", "#37E6FF"]
 
-## Zelle ohne Spielerfarbe (vor der Farbzuweisung): dunkles Neutralgrau.
-const CELL_EMPTY_COLOR := "#4A505A"
+## Zelle ohne Spielerfarbe oder mit zu geringem Zufluss: mittleres
+## Neutralgrau. Ueber die Einstellung "Neutralgrau" aenderbar.
+const CELL_EMPTY_COLOR := "#808080"
 
 # ------------------------------------------------- feste Spielkonstanten ---
 const DRAG_RADIUS := 10.0
@@ -54,26 +55,23 @@ const FRONT_FRAME_WIDTH := 5.0
 ## eine weisse Umrandung in der Dicke der normalen Zellgrenze.
 const POINT_HOVER_COLOR := "#FFFFFF"
 
-## Kurz vor der Uebernahme blinken gefaehrdete Zellen.
+## Kurz vor der Uebernahme blinkt die gezogene, gefaehrdete Zelle.
 const BLINK_COLOR := "#FFFFFF"
 const BLINK_ALPHA := 0.65
-const BLINK_VALUE_THRESHOLD := 10.0
-## Unter diesem summierten Einflusswert beginnt das Blinken.
+## Unter diesem summierten Einflusswert warnt die gezogene Zelle.
 const BLINK_WARN_VALUE := 10.0
+## Zellen, deren Zellwert (Betrag) darunter liegt, gelten als neutral: sie
+## werden im Neutralgrau gezeichnet und bekommen keine Frontlinie.
+const NEUTRAL_VALUE_THRESHOLD := 10.0
 ## Dauer einer Blinkphase (Sekunden) bei kleinster bzw. groesster Chance.
 const BLINK_SLOW_SEC := 0.75
 const BLINK_FAST_SEC := 0.12
 
 const COLOR_PROPAGATION_ITERATIONS := 12
 
-## Einflussverteilung: Startstaerke an der groessten Zelle eines Spielers.
+## Kraftverteilung: Tonmenge der groessten Zelle des Bretts. Alle anderen
+## Zellen tragen einen dazu relativen Grundwert nach ihrer Flaeche.
 const INFLUENCE_START_STRENGTH := 100.0
-## Anteil der Staerke, der ueber eine ideale Grenze weitergegeben wird. Groessere
-## Nachbarzellen und laengere gemeinsame Grenzen geben mehr weiter.
-const INFLUENCE_TRANSFER_RATE := 0.9
-## Unter dieser Staerke gilt eine Zelle als neutral: sie gehoert keinem Spieler
-## und bleibt grau.
-const INFLUENCE_MIN_STRENGTH := 0.5
 
 const BALANCE_TOLERANCE_RATIO := 0.05
 const INIT_MAX_ITERATIONS := 100
@@ -130,6 +128,9 @@ const FALLBACK_FREQ := 220.0
 
 @export var cell_count: int = 16
 
+## Tonmenge der groessten Zelle des Bretts (Kraftverteilung).
+@export var influence_start_strength: float = 100.0
+
 @export var push_factor: float = 0.2
 @export var push_radius: float = 40.0
 @export var border_margin: float = 50.0
@@ -143,10 +144,13 @@ const FALLBACK_FREQ := 220.0
 @export var show_cell_numbers: bool = false
 ## Vererbungswege der aktuellen oder aller Zellen anzeigen.
 @export var show_flow: bool = false
-## Vererbungswege fuer jede echte Zelle anzeigen.
-@export var show_all_flows: bool = false
 ## Gegenseitige Einflusswerte aller Zellen anzeigen.
 @export var show_all_cell_numbers: bool = false
+## Kraftfeld-Pfeile: Breite und Gesamtlaenge in Brettpixeln.
+@export var flow_arrow_width: float = 6.0
+@export var flow_arrow_length: float = 28.0
+## Schriftgroesse der Fliessmenge auf den Kraftfeld-Pfeilen (Brettpixel).
+@export var flow_label_size: float = 18.0
 ## Abstand zwischen zwei Farbwechseln, wenn Zellen verloren gehen (ms).
 @export var loss_step_ms: float = 25.0
 ## Zeit, um eine waehrend des Drags verlorene Zelle zu retten (ms).
@@ -159,6 +163,8 @@ const FALLBACK_FREQ := 220.0
 @export var boundary_label_threshold: float = 10.0
 ## Radius der Zellpunkte in Brettpixeln.
 @export var point_radius: float = 8.0
+## Neutralgrau fuer Zellen ohne Spielerfarbe oder mit zu geringem Zellwert.
+@export var cell_empty_color: String = CELL_EMPTY_COLOR
 
 # -------------------------------------------------------- Halbtonraster -----
 ## Bildschirmweiter CMYK-Halbton-Effekt ueber dem Spiel. Die Einstellungen
@@ -204,9 +210,10 @@ const FALLBACK_FREQ := 220.0
 
 # ------------------------------------------------------------- Schema ------
 ## Reihenfolge der Gruppen im Einstellungsmenue.
-const SETTING_GROUPS := ["Klang", "Spiel", "Darstellung", "Halbton"]
+const SETTING_GROUPS := ["Gameplay Core", "Klang", "Spiel", "Darstellung", "Halbton"]
 
 const SLIDERS := [
+	{"key": "influence_start_strength", "label": "Tonmenge (x)", "min": 0.0, "max": 1000.0, "step": 1.0, "group": "Gameplay Core"},
 	{"key": "attack", "label": "Attack", "min": 0.0, "max": 3.0, "step": 0.01, "group": "Klang"},
 	{"key": "decay", "label": "Decay", "min": 0.0, "max": 3.0, "step": 0.01, "group": "Klang"},
 	{"key": "sustain", "label": "Sustain", "min": 0.0, "max": 1.0, "step": 0.01, "group": "Klang"},
@@ -226,11 +233,14 @@ const SLIDERS := [
 	{"key": "stamina", "label": "Ausdauer", "min": 100.0, "max": 5000.0, "step": 100.0, "is_int": true, "group": "Spiel"},
 	{"key": "loss_step_ms", "label": "Verlust-Schritt (ms)", "min": 0.0, "max": 300.0, "step": 5.0, "group": "Spiel"},
 	{"key": "loss_rescue_ms", "label": "Rettungszeit (ms)", "min": 0.0, "max": 5000.0, "step": 50.0, "group": "Spiel"},
+	{"key": "flow_arrow_width", "label": "Pfeilbreite", "min": 0.5, "max": 40.0, "step": 0.5, "group": "Darstellung"},
+	{"key": "flow_arrow_length", "label": "Pfeillaenge", "min": 4.0, "max": 200.0, "step": 1.0, "group": "Darstellung"},
+	{"key": "flow_label_size", "label": "Pfeil-Schriftgroesse", "min": 6.0, "max": 48.0, "step": 1.0, "group": "Darstellung"},
 	{"key": "corner_radius", "label": "Zell-Abrundung", "min": 0.0, "max": 150.0, "step": 0.5, "group": "Darstellung"},
 	{"key": "cell_gap", "label": "Zellabstand", "min": 0.0, "max": 4.0, "step": 0.01, "group": "Darstellung"},
 	{"key": "boundary_label_threshold", "label": "Mindest-Grenzlinie", "min": 0.0, "max": 100.0, "step": 1.0, "group": "Darstellung"},
 	{"key": "point_radius", "label": "Punktgroesse", "min": 4.0, "max": 20.0, "step": 1.0, "group": "Darstellung"},
-	{"key": "halftone_pattern_scaling", "label": "Rasterweite", "min": 0.05, "max": 24.0, "step": 0.01, "group": "Halbton"},
+	{"key": "halftone_pattern_scaling", "label": "Rasterweite", "min": 0.05, "max": 40.0, "step": 0.01, "group": "Halbton"},
 	{"key": "halftone_sampling_quality", "label": "Qualitaet", "min": 0.05, "max": 1.0, "step": 0.05, "group": "Halbton"},
 	{"key": "halftone_cyan_rotation", "label": "Cyan Winkel", "min": -180.0, "max": 180.0, "step": 1.0, "group": "Halbton"},
 	{"key": "halftone_magenta_rotation", "label": "Magenta Winkel", "min": -180.0, "max": 180.0, "step": 1.0, "group": "Halbton"},
@@ -260,7 +270,6 @@ const TOGGLES := [
 	{"key": "dummy_points", "label": "DummyPoints", "group": "Spiel"},
 	{"key": "show_cell_numbers", "label": "Zahlen anzeigen", "group": "Darstellung"},
 	{"key": "show_flow", "label": "Flow anzeigen", "group": "Darstellung"},
-	{"key": "show_all_flows", "label": "Flows fuer alle Zellen", "group": "Darstellung"},
 	{"key": "show_all_cell_numbers", "label": "Zahlen fuer alle Zellen", "group": "Darstellung"},
 	{"key": "halftone_enabled", "label": "Halbtonraster", "group": "Halbton"},
 ]
@@ -278,6 +287,11 @@ const CHOICES := [
 		"labels": ["Im Code", "PNG-Datei"], "group": "Halbton"},
 ]
 
+## Farbwaehler im Einstellungsmenue. "key" ist der gespeicherte Wert.
+const COLORS := [
+	{"key": "cell_empty_color", "label": "Neutralgrau", "group": "Darstellung"},
+]
+
 const DEFAULTS := {
 	"waveform": "triangle",
 	"attack": 0.05,
@@ -292,6 +306,7 @@ const DEFAULTS := {
 	"spread_time": 0.6,
 	"spread_depth": 2,
 	"cell_count": 16,
+	"influence_start_strength": 100.0,
 	"push_factor": 0.2,
 	"push_radius": 40.0,
 	"border_margin": 50.0,
@@ -302,12 +317,15 @@ const DEFAULTS := {
 	"corner_radius": 8.0,
 	"cell_gap": 0.0,
 	"point_radius": 8.0,
+	"cell_empty_color": "#808080",
 	"alternating_moves": true,
 	"dummy_points": true,
 	"show_cell_numbers": false,
 	"show_flow": false,
-	"show_all_flows": false,
 	"show_all_cell_numbers": false,
+	"flow_arrow_width": 6.0,
+	"flow_arrow_length": 28.0,
+	"flow_label_size": 18.0,
 	"boundary_label_threshold": 10.0,
 	"halftone_enabled": true,
 	"halftone_pattern": "code",

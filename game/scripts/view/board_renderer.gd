@@ -33,6 +33,8 @@ var _cache_points := PackedVector2Array()
 var _cache_scale := -1.0
 var _cache_offset := Vector2.ZERO
 var _cache_radius := -1.0
+var _cache_empty_color := ""
+var _cache_strength := -1.0
 ## Gerundete Zellfuellungen (Fensterkoordinaten), einmal je Geometrie.
 var _fill_outlines: Array = []
 var _cache_fill_voronoi: Voronoi = null
@@ -41,7 +43,9 @@ var _cache_fill_scale := -1.0
 var _cache_fill_offset := Vector2.ZERO
 var _cache_fill_radius := -1.0
 var _cache_fill_gap := -1.0
-var _influence_values := PackedFloat32Array()
+var _cache_fill_empty_color := ""
+var _cache_fill_strength := -1.0
+var _signed_values := PackedFloat32Array()
 ## UV-Platzhalter fuer draw_primitive (3 Punkte je Dreieck).
 var _uvs3 := PackedVector2Array([Vector2.ZERO, Vector2.ZERO, Vector2.ZERO])
 
@@ -67,16 +71,17 @@ func _draw() -> void:
 	if board == null or config == null or voronoi == null:
 		return
 	_draw_cells()
-	_draw_points()
 	_draw_stamina_bars()
-	if board.game_over:
-		_draw_game_result()
 	if config.show_flow:
 		_draw_flows()
-	elif config.show_all_cell_numbers:
-		_draw_all_cell_ratios()
+	if config.show_all_cell_numbers:
+		_draw_all_cell_values()
 	elif config.show_cell_numbers:
 		_draw_cell_labels()
+	# Punkte liegen ueber Pfeilen und Texten, das Popup darueber.
+	_draw_points()
+	if board.game_over:
+		_draw_game_result()
 
 
 func _to_screen(point: Vector2) -> Vector2:
@@ -166,9 +171,10 @@ func _draw_cells() -> void:
 	if count == 0:
 		return
 	var line_scale := view_transform.scale
-	_ensure_territories(line_scale)
+	# Zuerst die Zellwerte und Fuellfarben: die Frontlinien brauchen die
+	# Neutral-Erkennung aus denselben Werten.
 	_ensure_fill_outlines(line_scale)
-	var influence_values := _influence_values
+	_ensure_territories(line_scale)
 
 	# 1) Zellflaechen: immer das gueltige Voronoi-Polygon fuellen. Die
 	#    Territoriums-Grenze liegt darueber; so bleiben keine Zellen grau, wenn
@@ -201,27 +207,31 @@ func _draw_cells() -> void:
 			for part in parts:
 				_fill_polygon(part, play_color)
 
-	# 2) Uebernahme-Warnung: Zellen nahe dem Umsprung blinken.
-	_draw_takeover_blink(shapes, influence_values)
+	# 2) Uebernahme-Warnung: nur die gezogene, gefaehrdete Zelle blinkt.
+	_draw_takeover_blink(shapes)
 
 	# 3) Durchgehende Frontlinie um jedes Territorium.
 	_draw_territory_lines(line_scale)
 
 
 ## Fuellfarbe jeder Zelle: kontinuierlicher Verlauf durch die drei definierten
-## Farbstufen des jeweiligen Spielers.
+## Farbstufen des jeweiligen Spielers. Zellen ohne Spielerfarbe oder mit zu
+## geringem Zellwert werden im einstellbaren Neutralgrau gezeichnet.
 func _cell_fill_colors(count: int) -> PackedStringArray:
 	var colors := PackedStringArray()
 	colors.resize(count)
 	var step_colors := _cell_step_colors(count)
 	for i in range(count):
-		colors[i] = step_colors[i] if step_colors[i] != "" else GameConfig.CELL_EMPTY_COLOR
+		if _is_neutral(i):
+			colors[i] = config.cell_empty_color
+		else:
+			colors[i] = step_colors[i] if step_colors[i] != "" else config.cell_empty_color
 	return colors
 
 
 ## Farbverlauf je Zelle: die groesste Zelle bekommt Landmarke 1. Alle weiteren
 ## Zellen werden zwischen Landmarke 2 (zweitgroesste) und 3 (kleinste) im
-## RGB-Raum fliessend interpoliert.
+## RGB-Raum fliessend interpoliert. Neutrale Zellen zaehlen nicht mit.
 func _cell_step_colors(count: int) -> PackedStringArray:
 	var out := PackedStringArray()
 	out.resize(count)
@@ -229,7 +239,7 @@ func _cell_step_colors(count: int) -> PackedStringArray:
 		var palette: Array = GameConfig.step_colors_for(player)
 		var indices: Array = []
 		for i in range(count):
-			if board.cell_color(i) == player:
+			if board.cell_color(i) == player and not _is_neutral(i):
 				indices.append(i)
 		if indices.is_empty():
 			continue
@@ -475,6 +485,8 @@ func _ensure_territories(line_scale: float) -> void:
 	_cache_scale = view_transform.scale
 	_cache_offset = view_transform.offset
 	_cache_radius = config.corner_radius
+	_cache_empty_color = config.cell_empty_color
+	_cache_strength = config.influence_start_strength
 
 
 func _smooth_territory_path(path: PackedVector2Array) -> PackedVector2Array:
@@ -496,11 +508,14 @@ func _ensure_fill_outlines(line_scale: float) -> void:
 		and is_equal_approx(view_transform.scale, _cache_fill_scale) \
 		and view_transform.offset == _cache_fill_offset \
 		and is_equal_approx(config.corner_radius, _cache_fill_radius) \
-		and is_equal_approx(config.cell_gap, _cache_fill_gap):
+		and is_equal_approx(config.cell_gap, _cache_fill_gap) \
+		and config.cell_empty_color == _cache_fill_empty_color \
+		and is_equal_approx(config.influence_start_strength, _cache_fill_strength):
 		return
 	var count := voronoi.cells.size()
-	_influence_values = _cell_influence_values(
-		CellGeometry.from_voronoi(voronoi, true), board.color_ids())
+	var geometry := CellGeometry.from_voronoi(voronoi, true)
+	_signed_values = Influence.cell_values(geometry, board.color_ids(),
+		board.influence_roots(), config.influence_start_strength)
 	_fill_colors = _cell_fill_colors(count)
 	_fill_outlines = []
 	_fill_outlines.resize(count)
@@ -516,6 +531,8 @@ func _ensure_fill_outlines(line_scale: float) -> void:
 	_cache_fill_offset = view_transform.offset
 	_cache_fill_radius = config.corner_radius
 	_cache_fill_gap = config.cell_gap
+	_cache_fill_empty_color = config.cell_empty_color
+	_cache_fill_strength = config.influence_start_strength
 
 
 ## Liegt der Punkt auf dem Rand des Bretts?
@@ -532,16 +549,20 @@ func _territories_valid(line_scale: float) -> bool:
 		and board.points == _cache_points \
 		and is_equal_approx(line_scale, _cache_scale) \
 		and view_transform.offset == _cache_offset \
-		and is_equal_approx(config.corner_radius, _cache_radius)
+		and is_equal_approx(config.corner_radius, _cache_radius) \
+		and config.cell_empty_color == _cache_empty_color \
+		and is_equal_approx(config.influence_start_strength, _cache_strength)
 
 
 ## Aussenkonturen der Zellflaechen einer Farbe (Brettkoordinaten).
 ## Gleichfarbige Kanten werden von Anfang an entfernt. Dadurch entstehen keine
 ## inneren Restpfade oder Sackgassen durch fehlerhafte Polygon-Vereinigungen.
+## Neutrale (graue) Zellen zaehlen nicht zum Territorium: die Frontlinie laeuft
+## nur um die tatsaechlich in Spielerfarbe gezeichneten Zellen.
 func _merge_cells(color: String) -> Array:
 	var boundary_segments: Array = []
 	for i in range(board.points.size()):
-		if board.cell_color(i) != color:
+		if board.cell_color(i) != color or _is_neutral(i):
 			continue
 		var poly := voronoi.cell_polygon(i)
 		if poly.size() < 3:
@@ -550,7 +571,7 @@ func _merge_cells(color: String) -> Array:
 		var neighbors := voronoi.edge_neighbors(i)
 		for k in range(poly.size()):
 			var nb: int = neighbors[k] if k < neighbors.size() else -1
-			if nb >= 0 and board.cell_color(nb) == color:
+			if nb >= 0 and board.cell_color(nb) == color and not _is_neutral(nb):
 				continue
 			var a := poly[k]
 			var b := poly[(k + 1) % poly.size()]
@@ -685,25 +706,17 @@ func _fill_fan(center: Vector2, arc: PackedVector2Array, color: Color) -> void:
 		draw_primitive(PackedVector2Array([center, arc[i], arc[i + 1]]), colors, _uvs3)
 
 
-## Uebernahme-Warnung: Zellen mit nahezu ausgeglichenem Einfluss blinken.
-func _draw_takeover_blink(shapes: Array, influence_values: PackedFloat32Array) -> void:
-	var threshold := GameConfig.BLINK_VALUE_THRESHOLD
-	var pulse := 0.5 + 0.5 * sin(float(Time.get_ticks_msec()) / 1000.0 * TAU / GameConfig.BLINK_SLOW_SEC)
-	for index in range(shapes.size()):
-		if shapes[index] == null or index >= influence_values.size():
-			continue
-		var value := absf(float(influence_values[index]))
-		var near_switch := value <= threshold
-		var is_drag_warning := index == board.dragged_index and board.drag_blink > 0.0
-		if not near_switch and not is_drag_warning:
-			continue
-		var proximity := 1.0 - clampf(value / threshold, 0.0, 1.0)
-		var intensity := pulse * proximity
-		if is_drag_warning:
-			intensity = maxf(intensity, board.drag_blink)
-		var color := Color(GameConfig.BLINK_COLOR, GameConfig.BLINK_ALPHA * intensity)
-		for part in shapes[index]:
-			_fill_polygon(part, color)
+## Uebernahme-Warnung: nur die gezogene Zelle blinkt, wenn ein Farbverlust
+## droht. Kleine Zellwerte loesen kein Blinken mehr aus.
+func _draw_takeover_blink(shapes: Array) -> void:
+	if board.drag_blink <= 0.0:
+		return
+	var index := board.dragged_index
+	if index < 0 or index >= shapes.size() or shapes[index] == null:
+		return
+	var color := Color(GameConfig.BLINK_COLOR, GameConfig.BLINK_ALPHA * board.drag_blink)
+	for part in shapes[index]:
+		_fill_polygon(part, color)
 
 
 ## Rundet die konvexen Ecken eines geschlossenen Polygons: die Ecke wird durch
@@ -800,196 +813,91 @@ func _fill_outline(index: int, screen_poly: PackedVector2Array, line_scale: floa
 	return BoardGeometry.largest_polygon(inset)
 
 
-## Flows zuletzt, damit sie weder Rahmen noch Punkte ueberdecken. Die Linien
-## liegen auf den Mittelpunkten der gemeinsamen Zellgrenzen und laufen als
-## weiche Kurve durch diese Punkte. Linien und Zellwert gibt es nur fuer die
-## Hover-/Drag-Zelle; "Flows fuer alle Zellen" blendet zusaetzlich an jeder
-## Grenze den vererbten Wert ein.
+## Kraftfeld: an jeder Grenze zeigt ein Pfeil in der Spielerfarbe der groesseren
+## Zelle zur kleineren; auf dem Pfeil steht die Fliessmenge dieser Kante in
+## Weiss. Die Richtung wird - wie im Kraftfeld - ueber die gerundeten
+## Groessenstufen bestimmt. Kanten ohne Fluss (Fliessmenge 0) werden weder als
+## Pfeil noch als Zahl angezeigt.
 func _draw_flows() -> void:
 	if voronoi.real_count <= 0:
 		return
 	var geometry := CellGeometry.from_voronoi(voronoi, true)
-	var ids := board.color_ids()
-	var roots := Influence.resolve_roots(geometry, ids, board.influence_roots())
-	var flows := {
-		1: Influence.flow(geometry, roots[0]),
-		2: Influence.flow(geometry, roots[1]),
-	}
-	var text_size := _text_size()
+	var count := geometry.count()
+	var field := Influence.distribute(geometry, board.color_ids(), board.influence_roots(),
+		config.influence_start_strength)
+	var edges: Dictionary = field["edges"]
+	var keys := Influence.size_keys(geometry)
+	# Groesster Fluss des Feldes als Bezug: grosse Werte bekommen breite, lange
+	# Pfeile, kleine Werte kurze, schmale Pfeile.
+	var max_magnitude := 0.0
+	for value in edges.values():
+		max_magnitude = maxf(max_magnitude, absf(float(value)))
+	if max_magnitude <= 0.0:
+		return
+	var max_width := maxf(0.5, config.flow_arrow_width) * view_transform.scale
+	var max_length := maxf(2.0, config.flow_arrow_length) * view_transform.scale
+	var text_size := maxi(1, int(round(config.flow_label_size * view_transform.scale)))
 	var text_offset := (_font.get_ascent(text_size) - _font.get_descent(text_size)) * 0.5
-	var point_radius := config.point_radius * view_transform.scale
-	var focus := board.dragged_index if board.dragged_index >= 0 else board.hovered_index
-	if focus >= 0 and focus < voronoi.real_count:
-		_draw_focus_flow(focus, geometry, ids, roots, flows)
-		_draw_focus_value(focus, geometry, ids, roots, flows, text_size, text_offset, point_radius)
-	if config.show_all_flows:
-		_draw_inherited_labels(geometry, ids, flows, text_size, text_offset, point_radius)
-
-
-## Flow-Linien der Hover-/Drag-Zelle: eigener Weg zur eigenen groessten Zelle
-## und, bei einer gegnerischen Front, der Weg der Gegenseite.
-func _draw_focus_flow(focus: int, geometry: CellGeometry, ids: PackedByteArray,
-		roots: PackedInt32Array, flows: Dictionary) -> void:
-	var own_id := int(ids[focus]) if focus < ids.size() else 0
-	if own_id == 0:
-		return
-	var routes := {}
-	var own_root: int = roots[own_id - 1]
-	if own_root >= 0:
-		var chain := _chain_to_root(flows[own_id]["parents"], own_root, focus)
-		if chain.size() >= 2:
-			routes[_route_key(chain)] = {"cells": chain, "color": own_id}
-	if _has_enemy_front(geometry, ids, focus):
-		var enemy_id := 2 if own_id == 1 else 1
-		var enemy_root: int = roots[enemy_id - 1]
-		if enemy_root >= 0:
-			var enemy_chain := _enemy_chain(geometry, ids, flows[enemy_id], enemy_root, focus, enemy_id)
-			if enemy_chain.size() >= 2:
-				routes[_route_key(enemy_chain)] = {"cells": enemy_chain, "color": enemy_id}
-	_draw_flow_routes(routes, maxf(1.5, 2.0 * view_transform.scale))
-
-
-## Wert der Hover-/Drag-Zelle: eigene Staerke plus gegnerischer Druck.
-func _draw_focus_value(focus: int, geometry: CellGeometry, ids: PackedByteArray,
-		roots: PackedInt32Array, flows: Dictionary, text_size: int, text_offset: float,
-		point_radius: float) -> void:
-	var own_id := int(ids[focus]) if focus < ids.size() else 0
-	if own_id == 0:
-		return
-	var own_strengths: PackedFloat32Array = flows[own_id]["strengths"]
-	var value := own_strengths[focus] * (-1.0 if own_id == 2 else 1.0)
-	if _has_enemy_front(geometry, ids, focus):
-		var enemy_id := 2 if own_id == 1 else 1
-		var enemy_strengths: PackedFloat32Array = flows[enemy_id]["strengths"]
-		value += enemy_strengths[focus] * (-1.0 if enemy_id == 2 else 1.0)
-	var poly := voronoi.cell_polygon(focus)
-	if poly.size() < 3:
-		return
-	var center := _to_screen(BoardGeometry.polygon_centroid(poly))
-	center = _move_label_away_from_point(center, _to_screen(board.points[focus]),
-		point_radius + text_size * 0.9)
-	_draw_centered_label_text(center, str(BoardGeometry.js_round(value)),
-		text_size, text_offset, Color.BLACK)
-
-
-## "Flows fuer alle Zellen": an jeder Grenze steht der Wert, den die Zelle von
-## ihrer Elternzelle geerbt hat. Das gilt fuer alle Zellen, nicht nur fuer die
-## Hover-Zelle.
-func _draw_inherited_labels(geometry: CellGeometry, ids: PackedByteArray, flows: Dictionary,
-		text_size: int, text_offset: float, point_radius: float) -> void:
-	for i in range(mini(geometry.count(), ids.size())):
-		var id := int(ids[i])
-		if id == 0:
+	for i in range(count):
+		if voronoi.cell_polygon(i).size() < 3:
 			continue
-		var flow: Dictionary = flows[id]
-		var parents: PackedInt32Array = flow["parents"]
-		var strengths: PackedFloat32Array = flow["strengths"]
-		var parent := parents[i]
-		if parent < 0 or strengths[i] <= 0.0:
-			continue
-		var scaled := BoardGeometry.js_round(strengths[i] * (-1.0 if id == 2 else 1.0))
-		if scaled == 0:
-			continue
-		var label := ("+" if scaled > 0 else "") + str(scaled)
-		_draw_inherited_label(i, parent, label, text_size, text_offset, point_radius)
+		var arrow_color := _flow_arrow_color(i)
+		for neighbor in geometry.neighbors[i]:
+			if neighbor < 0 or neighbor >= count:
+				continue
+			if not Influence.is_smaller(keys, neighbor, i):
+				continue
+			var share := float(edges.get(i * count + neighbor, 0.0))
+			if is_zero_approx(share):
+				# Nichts vererbt: kein Pfeil und keine Zahl.
+				continue
+			var midpoint := _boundary_midpoint(i, neighbor)
+			if not midpoint.is_finite():
+				continue
+			var direction := board.points[neighbor] - board.points[i]
+			if direction.length_squared() < 0.0001:
+				continue
+			direction = direction.normalized()
+			var weight := clampf(absf(share) / max_magnitude, 0.0, 1.0)
+			var scale_factor := lerpf(0.3, 1.0, weight)
+			var center := _to_screen(midpoint)
+			_draw_arrow(center, direction, max_width * scale_factor,
+				max_length * scale_factor, arrow_color)
+			_draw_edge_flow_label(center, share, text_size, text_offset)
 
 
-## Vererbter Wert an der gemeinsamen Grenze, leicht zur Kindzelle versetzt.
-func _draw_inherited_label(child: int, parent: int, label: String, text_size: int,
-		text_offset: float, point_radius: float) -> void:
-	var midpoint := _to_screen(_boundary_midpoint(child, parent))
-	var toward_child := _to_screen(board.points[child]) - midpoint
-	if toward_child.length_squared() < 0.0001:
-		toward_child = Vector2.UP
-	else:
-		toward_child = toward_child.normalized()
-	var position := midpoint + toward_child * maxf(4.0, text_size * 0.6)
-	position = _move_label_away_from_point(position, _to_screen(board.points[child]),
-		point_radius + text_size * 0.9)
-	_draw_centered_label_text(position, label, text_size, text_offset, Color.BLACK)
+## Pfeilfarbe: die Spielerfarbe der Zelle, von der der Fluss ausgeht. Neutrale
+## Zellen (ohne Farbe) bekommen den neutralen Grauton.
+func _flow_arrow_color(cell: int) -> Color:
+	var color := board.cell_color(cell)
+	if color == "":
+		return Color(config.cell_empty_color)
+	return Color(color)
 
 
-## Weg Wurzel -> node ueber die Elternkette. Leer, wenn die Kette die Wurzel
-## nicht erreicht.
-func _chain_to_root(parents: PackedInt32Array, root: int, node: int) -> PackedInt32Array:
-	var chain: Array = []
-	var current := node
-	var guard := 0
-	while current >= 0 and current < parents.size() and guard <= parents.size():
-		chain.append(current)
-		if current == root:
-			break
-		current = parents[current]
-		guard += 1
-	if chain.is_empty() or int(chain[chain.size() - 1]) != root:
-		return PackedInt32Array()
-	chain.reverse()
-	return PackedInt32Array(chain)
+## Pfeil mit Schaft und gefuelltem Dreieckskopf, zentriert auf `center`.
+func _draw_arrow(center: Vector2, direction: Vector2, width: float, length: float,
+		color: Color) -> void:
+	var tip := center + direction * length * 0.5
+	var tail := center - direction * length * 0.5
+	var head := clampf(length * 0.45, width * 2.0, length * 0.7)
+	var base := tip - direction * head
+	var side := direction.orthogonal() * (head * 0.42)
+	draw_line(tail, base, color, width, true)
+	draw_colored_polygon(PackedVector2Array([tip, base + side, base - side]), color)
 
 
-## Gegnerischer Weg. Die erste Zelle nach dem Fokus ist ein tatsaechlich
-## angrenzender Gegner; erst danach folgt dessen Elternkette zur gegnerischen
-## Wurzel. So laeuft der gegnerische Flow nicht ueber gleichfarbige Zellen.
-func _enemy_chain(geometry: CellGeometry, ids: PackedByteArray, enemy_flow: Dictionary,
-		enemy_root: int, focus: int, enemy_id: int) -> PackedInt32Array:
-	var strengths: PackedFloat32Array = enemy_flow["strengths"]
-	var best := -1
-	var best_value := -1.0
-	for neighbor in geometry.neighbors[focus]:
-		if neighbor < 0 or neighbor >= ids.size() or int(ids[neighbor]) != enemy_id:
-			continue
-		var value := strengths[neighbor] if neighbor < strengths.size() else 0.0
-		if value > best_value:
-			best_value = value
-			best = neighbor
-	if best < 0:
-		return PackedInt32Array()
-	var chain := _chain_to_root(enemy_flow["parents"], enemy_root, best)
-	if chain.is_empty():
-		return PackedInt32Array()
-	var out := chain.duplicate()
-	out.append(focus)
-	return out
+## Fliessmenge an der Kante, mittig auf dem Pfeil in weisser Schrift.
+func _draw_edge_flow_label(center: Vector2, value: float, text_size: int,
+		text_offset: float) -> void:
+	var label := str(BoardGeometry.js_round(value))
+	var text_width := _font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1.0, text_size).x
+	var position := Vector2(center.x - text_width * 0.5, center.y + text_offset)
+	draw_string(_font, position, label, HORIZONTAL_ALIGNMENT_LEFT, -1.0, text_size,
+		Color(1.0, 1.0, 1.0))
 
 
-func _route_key(cells: PackedInt32Array) -> String:
-	var key := ""
-	for cell in cells:
-		key += str(cell) + ","
-	return key
-
-
-## Grenzt die Zelle an einen andersfarbigen Spieler?
-func _has_enemy_front(geometry: CellGeometry, ids: PackedByteArray, cell: int) -> bool:
-	if cell < 0 or cell >= ids.size() or ids[cell] == 0:
-		return false
-	for neighbor in geometry.neighbors[cell]:
-		if neighbor >= 0 and neighbor < ids.size() and ids[neighbor] != 0 \
-			and ids[neighbor] != ids[cell]:
-			return true
-	return false
-
-
-func _draw_flow_routes(routes: Dictionary, width: float) -> void:
-	for route in routes.values():
-		var cells: PackedInt32Array = route["cells"]
-		var color := Color(GameConfig.COLOR_PLAYER1, 0.8) if int(route["color"]) == 1 \
-			else Color(GameConfig.COLOR_PLAYER2, 0.8)
-		var points := _flow_route_points(cells)
-		if points.size() < 2:
-			continue
-		draw_polyline(_to_screen_polygon(_smooth_flow_path(points)), color, width, true)
-
-
-## Grenzmittelpunkte entlang einer Zellfolge (Brettkoordinaten).
-func _flow_route_points(cells: PackedInt32Array) -> PackedVector2Array:
-	var points := PackedVector2Array()
-	for k in range(cells.size() - 1):
-		points.append(_boundary_midpoint(cells[k], cells[k + 1]))
-	return points
-
-
-## Mittelpunkt der gemeinsamen Grenze zweier Zellen.
+## Mittelpunkt der gemeinsamen Grenze zweier Zellen (INF, wenn keine Kante).
 func _boundary_midpoint(first: int, second: int) -> Vector2:
 	var poly := voronoi.cell_polygon(first)
 	if poly.size() >= 3:
@@ -997,37 +905,10 @@ func _boundary_midpoint(first: int, second: int) -> Vector2:
 		for k in range(poly.size()):
 			if k < neighbors.size() and int(neighbors[k]) == second:
 				return (poly[k] + poly[(k + 1) % poly.size()]) * 0.5
-	return (board.points[first] + board.points[second]) * 0.5
+	return Vector2.INF
 
 
-## Weicher Verlauf durch die Grenzmittelpunkte (Catmull-Rom). So entsteht ein
-## runder Flow statt eines Zickzacks.
-func _smooth_flow_path(points: PackedVector2Array) -> PackedVector2Array:
-	var count := points.size()
-	if count < 3:
-		return points
-	var out := PackedVector2Array()
-	var steps := 10
-	for i in range(count - 1):
-		var p0 := points[maxi(i - 1, 0)]
-		var p1 := points[i]
-		var p2 := points[i + 1]
-		var p3 := points[mini(i + 2, count - 1)]
-		for s in range(steps):
-			out.append(_catmull_rom(p0, p1, p2, p3, float(s) / float(steps)))
-	out.append(points[count - 1])
-	return out
-
-
-static func _catmull_rom(p0: Vector2, p1: Vector2, p2: Vector2, p3: Vector2, t: float) -> Vector2:
-	var t2 := t * t
-	var t3 := t2 * t
-	return 0.5 * (2.0 * p1 + (-p0 + p2) * t
-		+ (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t2
-		+ (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * t3)
-
-
-## Relative Einflusswerte zuletzt, damit sie weder Rahmen noch Punkte ueberdecken.
+## Zellwerte der Hover-/Drag-Zelle und ihrer Nachbarn.
 func _draw_cell_labels() -> void:
 	var text_size := _text_size()
 	var text_offset := (_font.get_ascent(text_size) - _font.get_descent(text_size)) * 0.5
@@ -1036,34 +917,31 @@ func _draw_cell_labels() -> void:
 	if focus < 0 or focus >= voronoi.real_count:
 		return
 	var geometry := CellGeometry.from_voronoi(voronoi, true)
-	var ids := board.color_ids()
+	var values := _cell_values(geometry)
 	var focus_poly := voronoi.cell_polygon(focus)
-	if focus_poly.size() >= 3:
-		var total := Territories.relative_neighbor_total(geometry, ids, focus)
-		_draw_relative_label(focus, total, focus_poly, text_size, text_offset, point_radius)
+	if focus_poly.size() >= 3 and focus < values.size() and not is_zero_approx(values[focus]):
+		_draw_value_label(focus, values[focus], focus_poly, text_size, text_offset, point_radius)
 	for neighbor in geometry.neighbors[focus]:
-		var value := Territories.relative_neighbor_value(geometry, ids, focus, neighbor)
-		if is_zero_approx(value):
+		if neighbor < 0 or neighbor >= values.size() or is_zero_approx(values[neighbor]):
 			continue
 		var poly := voronoi.cell_polygon(neighbor)
 		if poly.size() < 3:
 			continue
-		_draw_neighbor_relative_label(focus, neighbor, value, poly, text_size, text_offset, point_radius)
+		_draw_neighbor_value_label(focus, neighbor, values[neighbor], poly, text_size, text_offset, point_radius)
 
 
-## Zeigt fuer jede echte Zelle den aufsummierten gegenseitigen Einfluss ihrer
-## Nachbarn. Groessere gleichfarbige Nachbarn wirken positiv, groessere
-## gegnerische Nachbarn negativ; gemeinsame Grenzlaengen werden einbezogen.
-func _draw_all_cell_ratios() -> void:
+## Zeigt fuer jede echte Zelle ihren Flusswert (rot positiv, blau negativ).
+func _draw_all_cell_values() -> void:
 	if voronoi.real_count <= 0:
 		return
 	var geometry := CellGeometry.from_voronoi(voronoi, true)
-	var ids := board.color_ids()
-	var values := _cell_influence_values(geometry, ids)
+	var values := _cell_values(geometry)
 	var text_size := _text_size()
 	var text_offset := (_font.get_ascent(text_size) - _font.get_descent(text_size)) * 0.5
 	var point_radius := config.point_radius * view_transform.scale
-	for i in range(voronoi.real_count):
+	for i in range(mini(voronoi.real_count, values.size())):
+		if is_zero_approx(values[i]):
+			continue
 		var poly := voronoi.cell_polygon(i)
 		if poly.size() < 3:
 			continue
@@ -1074,40 +952,36 @@ func _draw_all_cell_ratios() -> void:
 			text_offset, Color.BLACK)
 
 
-## Staerkeueberschuss je Zelle: rot positiv, blau negativ (+100/-100 an den
-## Wurzelzellen). Ein Wert nahe null bedeutet, dass der Einfluss beider Spieler
-## fast gleich gross ist und die Zelle bald kippt.
-func _cell_influence_values(geometry: CellGeometry, ids: PackedByteArray) -> PackedFloat32Array:
-	var count := geometry.count()
-	var values := PackedFloat32Array()
-	values.resize(count)
-	values.fill(0.0)
-	if count == 0:
-		return values
-	var roots := Influence.resolve_roots(geometry, ids, board.influence_roots())
-	var red_influence: PackedFloat32Array = Influence.flow(geometry, roots[0])["strengths"]
-	var blue_influence: PackedFloat32Array = Influence.flow(geometry, roots[1])["strengths"]
-	for i in range(count):
-		values[i] = clampf(red_influence[i] - blue_influence[i],
-			-GameConfig.INFLUENCE_START_STRENGTH, GameConfig.INFLUENCE_START_STRENGTH)
-	return values
+## Vorzeichenbehafteter Flusswert je Zelle aus dem aktuellen Brett und der
+## eingestellten Tonmenge x.
+func _cell_values(geometry: CellGeometry) -> PackedFloat32Array:
+	return Influence.cell_values(geometry, board.color_ids(), board.influence_roots(),
+		config.influence_start_strength)
 
 
-func _draw_relative_label(index: int, value: float, poly: PackedVector2Array,
+## Neutrale Zelle: ohne Spielerfarbe oder mit einem Zellwert unter der
+## Neutral-Schwelle. Sie wird grau gezeichnet und bekommt keine Frontlinie.
+func _is_neutral(index: int) -> bool:
+	if index < 0 or index >= board.points.size():
+		return false
+	if board.cell_color(index) == "":
+		return true
+	if index >= _signed_values.size():
+		return false
+	return Influence.is_neutral(_signed_values[index])
+
+
+func _draw_value_label(index: int, value: float, poly: PackedVector2Array,
 		text_size: int, text_offset: float, point_radius: float) -> void:
 	var centroid := _to_screen(BoardGeometry.polygon_centroid(poly))
 	var point := _to_screen(board.points[index])
 	centroid = _move_label_away_from_point(centroid, point, point_radius + text_size * 0.9)
-	var scaled := BoardGeometry.js_round(value)
-	if scaled == 0:
-		return
-	var label := ("+" if scaled > 0 else "") + str(scaled)
-	_draw_centered_label_text(centroid, label, text_size, text_offset, Color.BLACK)
+	_draw_centered_label_text(centroid, str(BoardGeometry.js_round(value)),
+		text_size, text_offset, Color.BLACK)
 
 
-## Zeichnet den Wert einer groesseren Nachbarzelle direkt an ihrer gemeinsamen
-## Grenze. Der kleine Versatz zeigt auf die Seite der groesseren Zelle.
-func _draw_neighbor_relative_label(focus: int, neighbor: int, value: float,
+## Wert einer Nachbarzelle an der gemeinsamen Grenze, leicht zur Zelle versetzt.
+func _draw_neighbor_value_label(focus: int, neighbor: int, value: float,
 		poly: PackedVector2Array, text_size: int, text_offset: float, point_radius: float) -> void:
 	var edge := _shared_edge(focus, neighbor)
 	if edge.size() < 2:
@@ -1123,12 +997,8 @@ func _draw_neighbor_relative_label(focus: int, neighbor: int, value: float,
 	var position := midpoint + toward_neighbor * maxf(4.0, text_size * 0.6)
 	position = _move_label_away_from_point(position, _to_screen(board.points[neighbor]),
 		point_radius + text_size * 0.9)
-	var scaled := BoardGeometry.js_round(value)
-	if scaled == 0:
-		return
-	var label := ("+" if scaled > 0 else "") + str(scaled)
-	_draw_rounded_label(position, label, text_size, text_offset, Color.WHITE,
-		Color(board.cell_color(neighbor)))
+	_draw_rounded_label(position, str(BoardGeometry.js_round(value)), text_size, text_offset,
+		Color.WHITE, Color(board.cell_color(neighbor)))
 
 
 func _draw_centered_label_text(center: Vector2, label: String, text_size: int,

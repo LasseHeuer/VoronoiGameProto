@@ -15,7 +15,6 @@ var areas := PackedFloat32Array()
 var neighbors: Array = []
 ## Gemeinsame Grenzlaenge je Zelle und Nachbar.
 var edge_lengths: Array = []
-var _max_weighted_area_delta := -1.0
 
 
 static func from_voronoi(voronoi: Voronoi, include_topological := false) -> CellGeometry:
@@ -49,23 +48,3 @@ static func from_voronoi(voronoi: Voronoi, include_topological := false) -> Cell
 ## Anzahl der Zellen dieses Ausschnitts.
 func count() -> int:
 	return areas.size()
-
-
-## Groesster moeglicher Flaechenueberschuss mal gemeinsamer Grenzlaenge. Der
-## Wert ist unabhaengig von den Farben und kann deshalb wiederverwendet werden.
-func max_weighted_area_delta() -> float:
-	if _max_weighted_area_delta >= 0.0:
-		return _max_weighted_area_delta
-	_max_weighted_area_delta = 0.0
-	for cell_index in range(neighbors.size()):
-		for neighbor_index in neighbors[cell_index]:
-			if neighbor_index < 0 or neighbor_index >= areas.size():
-				continue
-			var edge_length := 1.0
-			if cell_index < edge_lengths.size():
-				edge_length = float(edge_lengths[cell_index].get(neighbor_index, 0.0))
-			if edge_length <= 0.0:
-				continue
-			_max_weighted_area_delta = maxf(_max_weighted_area_delta,
-				absf(areas[neighbor_index] - areas[cell_index]) * edge_length)
-	return _max_weighted_area_delta

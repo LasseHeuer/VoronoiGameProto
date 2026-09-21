@@ -24,6 +24,8 @@ func test_defaults_cover_the_whole_schema() -> void:
 		assert_true(GameConfig.DEFAULTS.has(entry["key"]), entry["key"])
 	for entry in GameConfig.CHOICES:
 		assert_true(GameConfig.DEFAULTS.has(entry["key"]), entry["key"])
+	for entry in GameConfig.COLORS:
+		assert_true(GameConfig.DEFAULTS.has(entry["key"]), entry["key"])
 
 
 func test_defaults_match_the_reference_values() -> void:
@@ -40,6 +42,7 @@ func test_defaults_match_the_reference_values() -> void:
 	assert_almost_eq(config.spread_time, 0.6, 0.0001)
 	assert_eq(config.spread_depth, 2)
 	assert_eq(config.cell_count, 16)
+	assert_almost_eq(config.influence_start_strength, 100.0, 0.0001)
 	assert_almost_eq(config.push_factor, 0.2, 0.0001)
 	assert_almost_eq(config.push_radius, 40.0, 0.0001)
 	assert_almost_eq(config.border_margin, 50.0, 0.0001)
@@ -95,9 +98,11 @@ func test_settings_store_keys_match_the_schema() -> void:
 		assert_true(keys.has(entry["key"]), entry["key"])
 	for entry in GameConfig.CHOICES:
 		assert_true(keys.has(entry["key"]), entry["key"])
+	for entry in GameConfig.COLORS:
+		assert_true(keys.has(entry["key"]), entry["key"])
 	assert_true(keys.has("waveform"))
 	assert_eq(keys.size(), GameConfig.SLIDERS.size() + GameConfig.TOGGLES.size()
-		+ GameConfig.CHOICES.size())
+		+ GameConfig.CHOICES.size() + GameConfig.COLORS.size())
 
 
 func test_board_state_color_helpers() -> void:
@@ -183,12 +188,13 @@ func test_settings_panel_builds_rows_and_writes_back_to_config() -> void:
 	panel.value_changed.connect(func(key: String, _value: Variant): changed.append(key))
 
 	# Jede Gruppe bekommt einen Abschnittstitel, dazu alle Auswahlfelder,
-	# Regler und Schalter aus dem Schema.
+	# Farbwaehler, Regler und Schalter aus dem Schema.
 	assert_eq(panel._rows.get_children().size(),
 		GameConfig.SETTING_GROUPS.size() + GameConfig.CHOICES.size()
-		+ GameConfig.SLIDERS.size() + GameConfig.TOGGLES.size())
+		+ GameConfig.COLORS.size() + GameConfig.SLIDERS.size() + GameConfig.TOGGLES.size())
 	assert_eq(panel._controls.size(),
-		GameConfig.CHOICES.size() + GameConfig.SLIDERS.size() + GameConfig.TOGGLES.size())
+		GameConfig.CHOICES.size() + GameConfig.COLORS.size()
+		+ GameConfig.SLIDERS.size() + GameConfig.TOGGLES.size())
 
 	var expected_changes := 0
 	for entry in GameConfig.SLIDERS:
@@ -222,6 +228,20 @@ func test_settings_panel_choice_dropdowns_write_back_to_config() -> void:
 		var other := (option.selected + 1) % values.size()
 		option.item_selected.emit(other)
 		assert_eq(config.get(key), values[other], key)
+
+
+func test_settings_panel_color_picker_writes_back_to_config() -> void:
+	var config := GameConfig.new()
+	var panel: SettingsPanel = load("res://scenes/SettingsPanel.tscn").instantiate()
+	add_child_autofree(panel)
+	panel.setup(config)
+
+	for entry in GameConfig.COLORS:
+		var key: String = entry["key"]
+		var picker: ColorPickerButton = panel._controls[key]
+		assert_eq(picker.color, Color(String(config.get(key))), key)
+		picker.color_changed.emit(Color("#123456"))
+		assert_eq(config.get(key), "#123456", key)
 
 
 func test_settings_panel_toggles_and_restart_button() -> void:
@@ -272,16 +292,7 @@ func test_settings_panel_sections_start_collapsed_and_toggle() -> void:
 		for row in rows:
 			if row.visible:
 				shown += 1
-		var expected := rows.size()
-		if group == "Darstellung" and not config.show_flow:
-			expected -= 1
-		assert_eq(shown, expected, "Rubrik '%s' nach dem Ausklappen" % group)
-
-	var flow: CheckBox = panel._controls["show_flow"]
-	flow.button_pressed = true
-	assert_true(panel._rows_by_key["show_all_flows"].visible, "Flow-Zeile folgt dem Flow-Schalter")
-	flow.button_pressed = false
-	assert_false(panel._rows_by_key["show_all_flows"].visible, "ohne Flow ist die Zeile verborgen")
+		assert_eq(shown, rows.size(), "Rubrik '%s' nach dem Ausklappen" % group)
 
 
 func test_settings_panel_draws_its_section_headers() -> void:
@@ -300,6 +311,41 @@ func test_settings_panel_fine_step_is_a_tenth() -> void:
 	add_child_autofree(panel)
 	assert_almost_eq(panel._fine_step(0.01), 0.001, 0.000001)
 	assert_almost_eq(panel._fine_step(1.0), 0.1, 0.000001)
+
+
+## Das Zahlenfeld ist direkt editierbar: Klick waehlt den Wert aus, Enter oder
+## Fokusverlust uebernehmen die Eingabe und begrenzen sie auf den Bereich.
+func test_settings_panel_value_field_is_editable() -> void:
+	var config := GameConfig.new()
+	var panel: SettingsPanel = load("res://scenes/SettingsPanel.tscn").instantiate()
+	add_child_autofree(panel)
+	panel.setup(config)
+
+	var field: LineEdit = panel._value_fields["attack"]
+	var slider: HSlider = panel._controls["attack"]
+	assert_true(field.select_all_on_focus, "ein Klick waehlt den Wert aus")
+
+	field.text = "1.75"
+	field.text_submitted.emit(field.text)
+	assert_almost_eq(config.attack, 1.75, 0.0001, "die Eingabe wird uebernommen")
+	assert_almost_eq(slider.value, 1.75, 0.0001, "der Regler folgt der Eingabe")
+
+	field.text = "999"
+	field.focus_exited.emit()
+	assert_almost_eq(config.attack, slider.max_value, 0.0001, "zu grosse Werte werden begrenzt")
+
+	field.text = "abc"
+	field.text_submitted.emit(field.text)
+	assert_almost_eq(config.attack, slider.max_value, 0.0001, "ungueltiger Text aendert nichts")
+
+
+## Die Halbton-Rasterweite laesst sich bis 40 einstellen.
+func test_halftone_raster_can_be_set_higher() -> void:
+	for entry in GameConfig.SLIDERS:
+		if entry["key"] == "halftone_pattern_scaling":
+			assert_almost_eq(float(entry["max"]), 40.0, 0.0001, "Rasterweite bis 40")
+			return
+	assert_true(false, "Rasterweite-Slider vorhanden")
 
 
 func test_settings_panel_settings_snapshot_lists_current_values() -> void:

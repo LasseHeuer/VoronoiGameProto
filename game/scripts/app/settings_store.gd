@@ -16,6 +16,8 @@ static func schema_keys() -> PackedStringArray:
 		keys.append(entry["key"])
 	for entry in GameConfig.CHOICES:
 		keys.append(entry["key"])
+	for entry in GameConfig.COLORS:
+		keys.append(entry["key"])
 	return keys
 
 static func save(config: GameConfig) -> void:

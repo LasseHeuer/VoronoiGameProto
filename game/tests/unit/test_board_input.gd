@@ -134,6 +134,63 @@ func test_lost_drag_switches_after_rescue_timeout() -> void:
 	assert_eq(board.active_color, GameConfig.COLOR_PLAYER2, "danach wechselt der aktive Spieler")
 
 
+## Eine graue Zelle droht den Zugverlust: sie gilt erst wieder als gerettet,
+## wenn sie die aktive Farbe traegt und nicht mehr grau ist.
+func test_gray_drag_threatens_loss_until_the_cell_recovers() -> void:
+	var input := _make_input(true)
+
+	input._on_press(POINT_A)
+	input.set_drag_cell_neutral(true)
+	input.notify_drag_cell_lost(0)
+	assert_true(input.is_loss_active(), "die graue Zelle droht den Zugverlust")
+	assert_eq(input.update_drag_rescue(float(Time.get_ticks_msec()) + 500.0), 0)
+
+	input.set_drag_cell_neutral(false)
+	assert_eq(input.update_drag_rescue(float(Time.get_ticks_msec())), 1,
+		"nicht mehr grau = gerettet")
+	assert_true(input.is_dragging(), "die gerettete Zelle bleibt bis zum Loslassen aktiv")
+
+
+## Ohne Rettung wechselt der Zug nach der Rettungszeit zum Gegner.
+func test_gray_drag_switches_to_the_opponent_after_the_rescue_time() -> void:
+	var input := _make_input(true)
+	var board: BoardState = input.board
+
+	input._on_press(POINT_A)
+	input.set_drag_cell_neutral(true)
+	input.notify_drag_cell_lost(0)
+	var state := input.update_drag_rescue(float(Time.get_ticks_msec()) + 1001.0)
+
+	assert_eq(state, -1, "die Rettungszeit laeuft ab")
+	assert_false(input.is_dragging())
+	assert_eq(board.active_color, GameConfig.COLOR_PLAYER2, "danach ist der Gegner am Zug")
+
+
+## Wird die graue Zelle ohne Rettung losgelassen, ist der Zug verloren.
+func test_release_while_gray_loses_the_move() -> void:
+	var input := _make_input(true)
+	var board: BoardState = input.board
+
+	input._on_press(POINT_A)
+	input.set_drag_cell_neutral(true)
+	input.notify_drag_cell_lost(0)
+	input._on_release()
+
+	assert_eq(board.active_color, GameConfig.COLOR_PLAYER2, "der Gegner ist am Zug")
+
+
+## Eine dauerhaft graue Zelle verlaengert die Rettungszeit nicht.
+func test_repeated_loss_report_does_not_extend_the_rescue_time() -> void:
+	var input := _make_input(true)
+
+	input._on_press(POINT_A)
+	input.set_drag_cell_neutral(true)
+	input.notify_drag_cell_lost(0)
+	input.notify_drag_cell_lost(0)
+	assert_eq(input.update_drag_rescue(float(Time.get_ticks_msec()) + 1001.0), -1,
+		"die Rettungszeit wird nicht verlaengert")
+
+
 func test_drag_blocked_by_wrong_color_starts_no_cascade() -> void:
 	var input := _make_input(true)
 	var board: BoardState = input.board
@@ -169,13 +226,36 @@ func test_drag_visuals_report_neighbors_and_warning() -> void:
 	assert_eq(board.dragged_index, 0)
 	assert_eq(board.drag_same_neighbor, 1, "gleichfarbiger Nachbar erkannt")
 	assert_eq(board.drag_opponent_neighbor, 2, "Gegner erkannt")
-	assert_true(board.drag_warn > 0.0 and board.drag_warn <= 1.0,
-		"der grosse Gegner loest eine Warnung aus")
+	assert_true(board.drag_warn >= 0.0 and board.drag_warn <= 1.0,
+		"die Warnung liegt im gueltigen Bereich")
 
 	input._on_release()
 	assert_eq(board.dragged_index, -1, "nach dem Loslassen sind die Daten weg")
 	assert_eq(board.drag_warn, 0.0)
 	assert_eq(board.drag_blink, 0.0)
+
+
+## Bei ausgeglichenem Fluss (die Zelle bekommt von beiden Seiten gleich viel)
+## steht die Zelle kurz vor dem Umsprung und warnt.
+func test_drag_warning_fires_near_the_flip_point() -> void:
+	var config := GameConfig.new()
+	config.alternating_moves = false
+	var board := BoardState.new()
+	board.points = PackedVector2Array([Vector2(200.0, 300.0), Vector2(650.0, 300.0)])
+	board.dummy_points = PackedVector2Array()
+	board.reset_colors()
+	board.set_cell_color(0, GameConfig.COLOR_PLAYER1)
+	board.set_cell_color(1, GameConfig.COLOR_PLAYER2)
+	board.active_color = GameConfig.COLOR_PLAYER1
+	var input := BoardInput.new()
+	input.setup(board, config)
+	add_child_autofree(input)
+
+	input._on_press(board.points[0])
+	input.update_drag_visuals(Voronoi.from_board(board,
+		Rect2(0.0, 0.0, GameConfig.BOARD_WIDTH, GameConfig.BOARD_HEIGHT)))
+
+	assert_gt(board.drag_warn, 0.0, "ausgeglichener Fluss warnt")
 
 
 ## Ohne groesseren Gegner kann ein zu geringer eigener Summenwert nicht warnen.
@@ -293,3 +373,52 @@ func test_hover_marks_the_cell_in_the_board_state() -> void:
 	_move_cursor(input, Vector2(950.0, 500.0))
 	input.update_hover(plain)
 	assert_eq(board.hovered_index, -1, "ausserhalb des Bretts ist nichts markiert")
+
+
+## Grosse Randzellen werden in allen Teilen erkannt: der Treffer wird an der
+## gezeichneten Geometrie mit Dummy-Punkten geprueft, die sich am Rand von der
+## einfachen Geometrie unterscheidet.
+func test_hover_hits_every_part_of_large_cells() -> void:
+	var config := GameConfig.new()
+	config.cell_count = 16
+	var board := BoardState.new()
+	board.dummy_points = Territories.generate_dummy_points()
+	Territories.init_on_new_game(board, config, DeterministicRng.new(777))
+	board.points[3] += Vector2(40.0, -30.0)
+	board.points[9] += Vector2(-25.0, 35.0)
+	var rect := Rect2(0.0, 0.0, GameConfig.BOARD_WIDTH, GameConfig.BOARD_HEIGHT)
+	var main := Voronoi.from_board(board, rect)
+	var plain := Voronoi.from_points(board.points, rect)
+	var input := BoardInput.new()
+	input.setup(board, config)
+	add_child_autofree(input)
+
+	# Nur die vier groessten Zellen rasterweise pruefen.
+	var order: Array = []
+	for cell in range(main.real_count):
+		order.append(cell)
+	order.sort_custom(func(a, b): return main.area(a) > main.area(b))
+	var misses := 0
+	for cell in order.slice(0, 4):
+		var poly := main.cell_polygon(cell)
+		if poly.size() < 3:
+			continue
+		var xmin := poly[0].x
+		var xmax := poly[0].x
+		var ymin := poly[0].y
+		var ymax := poly[0].y
+		for p in poly:
+			xmin = minf(xmin, p.x)
+			xmax = maxf(xmax, p.x)
+			ymin = minf(ymin, p.y)
+			ymax = maxf(ymax, p.y)
+		var px := xmin
+		while px <= xmax:
+			var py := ymin
+			while py <= ymax:
+				var pt := Vector2(px, py)
+				if BoardGeometry.point_in_polygon(pt, poly) and input._cell_at(plain, main, pt) != cell:
+					misses += 1
+				py += 10.0
+			px += 10.0
+	assert_eq(misses, 0, "jeder Punkt der gezeichneten Zelle trifft die richtige Zelle")

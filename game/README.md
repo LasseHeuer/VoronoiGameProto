@@ -45,7 +45,7 @@ greift erst beim Neustart.
 godot --headless --path game -s addons/gut/gut_cmdln.gd -gdir=res://tests/unit -gexit
 ```
 
-Aktueller Stand: 164 Tests / 36256 Asserts, alle gruen.
+Aktueller Stand: 192 Tests / 36517 Asserts, alle gruen.
 Abgedeckt: Geometrie, Delaunay, Voronoi (inkl. Robustheit ueber mehrere
 Bretter und Ticks), Territorien/Zugwechsel, schrittweiser Farbwechsel,
 durchgehende Territoriums-Grenzen beim Drag, Zeichnen eines kompletten
@@ -180,14 +180,21 @@ stimmen vollstaendig ueberein.
   ist relativ zu den Zellen des jeweiligen Spielers; ein Spieler mit kleineren
   Zellen und Territorium wird also genauso abgestuft wie ein grosser. Die
   Spielerfarben bleiben unveraendert; die Schwaeche einer Zelle wird nur durch
-  das Blinken angezeigt.
+  das Blinken angezeigt. Zellen, deren Zellwert unter der Neutral-Schwelle
+  (Standard 10) liegt, gelten als neutral: sie werden statt in Spielerfarbe im
+  einstellbaren Neutralgrau (Regler "Neutralgrau", Standard mittleres Grau
+  `#808080`) gezeichnet und zaehlen nicht zum Territorium. Sie gehoeren keinem
+  Spieler mehr: sie vererben keine Werte an kleinere Nachbarn und zaehlen bei
+  der Flaechenwertung nicht mit.
 - **Zellraender**: zwischen zwei gleichfarbigen Zellen liegt eine duenne
   graue Linie (1.5 px) mittig auf der Kante. Zur fremden Farbe und zum
   Brettrand laeuft eine dicke Linie (5 px) in der eigenen Teamfarbe. Sie wird
   um ihre halbe Breite ins Zellinnere versetzt und liegt damit vollstaendig
   innerhalb der eigenen Form; an der gemeinsamen Front zeichnen beide Zellen
   ihre eigene Farbe auf ihrer Seite, sodass die beiden Linien direkt
-  aneinander liegen, ohne sich zu ueberdecken. Abgerundet werden die
+  aneinander liegen, ohne sich zu ueberdecken. Die Frontlinie laeuft nur um die
+  tatsaechlich in Spielerfarbe gezeichneten Zellen (Neutralzellen bilden
+  Luecken). Abgerundet werden die
   konvexen Ecken aller Zellen (Radius aus dem Regler "Zell-Abrundung",
   Standard 8 px, 0 = spitz); die Aufloesung des Bogens haengt an der
   Bogenlaenge (mindestens acht Stuetzpunkte, bei grossen Radien bis 28), damit
@@ -201,25 +208,50 @@ stimmen vollstaendig ueberein.
   weisse Umrandung in der Dicke der normalen Zellgrenze (1.5 px). Die
   Umrandung ist an den konvexen Ecken genauso gerundet wie die Zellraender.
   Das Original hatte dafuer nur den Klick und das Ziehen.
-- **Zahlen anzeigen** ist ein neuer Schalter (Standard: aus). Er blendet die
-  Flaechenzahlen in den Zellen ein; das Original zeigte sie immer.
-- **Flow anzeigen** zeigt fuer die aktuelle Hover- oder Drag-Zelle die
-  Vererbungswege von den groessten Spielerzellen samt Staerke an. Die Linien
-  liegen auf den Mittelpunkten der gemeinsamen Zellgrenzen und laufen als
-  weiche Kurve durch diese Punkte. Bei einer gegnerischen Front wird auch der
-  gegnerische Flow dargestellt; er beginnt an der tatsaechlich angrenzenden
-  Gegnerzelle. Linien und Zellwert gibt es nur fuer die Hover-Zelle. Mit
-  **Flows fuer alle Zellen** steht zusaetzlich an jeder Grenze der vererbte
-  Wert.
-- **Staerkevererbung** ersetzt das Uebernehmen des groessten Nachbarn: von der
-  groessten Zelle eines Spielers (Startwert 100) fliesst Staerke ueber die
-  gemeinsamen Grenzen. Groessere Nachbarzellen und laengere Grenzen geben mehr
-  weiter. Unter der Mindeststaerke wird der Wert 0; erreicht kein Spieler eine
-  Zelle, bleibt sie neutral und grau und gehoert keinem Spieler. Sonst besitzt
-  der Spieler mit der groesseren Staerke die Zelle.
-- **Uebernahme-Warnung** ist neu: Kurz vor einem Farbwechsel blinken
-  gefaehrdete Zellen. Je naeher der gegnerische Flaechenanteil am Kipp-Punkt
-  liegt, desto schneller blinkt die Warnung.
+- **Zahlen anzeigen** ist ein Schalter (Standard: aus). Er blendet den Wert
+  (den Flusswert) der Zelle unter dem Zeiger und ihrer Nachbarn ein; **Zahlen
+  fuer alle Zellen** zeigt den Wert jeder Zelle. Werte sind vorzeichenbehaftet:
+  rote Zellen positiv, blaue Zellen negativ; Zellen ohne Zufluss zeigen 0.
+- **Flow anzeigen** zeigt das Kraftfeld: an jeder Grenze ein Pfeil in der
+  Spielerfarbe der groesseren Zelle, von der groesseren zur kleineren Zelle.
+  Auf dem Pfeil steht die Fliessmenge dieser Kante (der Anteil, den die
+  groessere Zelle an die kleinere abgibt) in weisser Schrift, mittig auf dem
+  Pfeil, rot positiv und blau negativ. Kanten ohne Fluss (Fliessmenge 0)
+  werden weder als Pfeil noch als Zahl gezeigt. Neutrale Zellen ohne Farbe
+  bekommen einen grauen Pfeil. So entsteht ein Vektorfeld von gross nach klein.
+  Grosse Fliessmengen bekommen breite, lange Pfeile, kleine Fliessmengen kurze,
+  schmale Pfeile (Bezug ist der groesste Fluss des Feldes). Die maximale Breite
+  und Laenge stehen als Regler "Pfeilbreite" und "Pfeillaenge", die
+  Schriftgroesse als "Pfeil-Schriftgroesse" in der Rubrik Darstellung. Pfeile
+  und Zahlen lassen sich gleichzeitig anzeigen.
+- **Kraftverteilung** ersetzt die frueheren Flow- und Nachbarwert-Regeln: nur
+  die groesste Zelle je Spieler (die Wurzel) traegt einen eigenen Groessenwert,
+  rot positiv und blau negativ. Waechst im Spiel eine andere Zelle zur
+  groessten ihrer Farbe heran, wandert die Wurzel mit; so traegt die groesste
+  Zelle immer den Groessenwert. Der Wert ist die Tonmenge x (Regler "Tonmenge
+  (x)" in der Rubrik "Gameplay Core", Standard 100) fuer die groesste Zelle des
+  Bretts; eine kleinere Wurzel traegt entsprechend weniger (x mal ihre Flaeche
+  geteilt durch die groesste Flaeche). So kann eine kleinere blaue Wurzel vom
+  groesseren roten Zufluss ueberholt werden. Weitergegeben wird immer der
+  angezeigte (Netto-)Zellwert, also Groessenwert plus der bei der Zelle
+  ankommende gegnerische Fluss: zieht der Gegner etwas ab, fliesst entsprechend
+  weniger weiter, und gleicht der Zufluss den Groessenwert aus, fliesst nichts
+  mehr weiter. Alle anderen Zellen bekommen ausschliesslich die Summe der
+  Flusswerte, die von groesseren Nachbarn ankommen; die eigene Zellgroesse
+  zaehlt nicht mit. Von jeder Zelle fliesst ihr Wert an die naechstkleineren
+  Nachbarn, aufgeteilt nach der gemeinsamen Kantenlaenge. Der Zellwert ist damit
+  die vorzeichenbehaftete Summe der Zufluesse: zwei rote Nachbarn mit +20 und
+  +30 und ein blauer mit -40 ergeben +10. Eine Zelle gehoert dem Spieler, dessen
+  Zufluss an ihr ueberwiegt; Zellen ohne Zufluss behalten ihre Farbe.
+- **Gespiegelter Start**: Die Punkte werden paarweise erzeugt und nach der
+  Entspannung exakt gespiegelt. Die beiden Wurzelzellen sind Spiegelpartner,
+  damit die Startaufstellung symmetrisch ist. Damit der Fluss diese Symmetrie
+  nicht durch Rundungsrauschen verliert, vergleicht er die Zellgroessen ueber
+  gerundete Groessenstufen.
+- **Uebernahme-Warnung**: Nur die gezogene Zelle blinkt kurz vor einem
+  Farbverlust. Je naeher der gegnerische Flaechenanteil am Kipp-Punkt liegt,
+  desto schneller blinkt die Warnung. Zellen mit kleinen Werten blinken nicht
+  mehr von selbst.
 - **Neustart** setzt Punkte, Zellen, Farben und Zugrecht zurueck. Im Original
   gab es keinen Neustart; die Zellzahl wirkte dort sofort, hier erst beim
   Neustart.
@@ -261,12 +293,19 @@ stimmen vollstaendig ueberein.
   fruehrerer Ansatz, die Fenstergroesse selbst nachzuziehen, ist entfallen.
 - **Einstellungen**: ein kleines Zahnrad oben links oeffnet das Menue
   (`ui/gear_button.gd`, ohne Bilddatei gezeichnet). Das Menue ist eine schmale,
-  dunkle Spalte ueber die gesamte Fensterhoehe, mit Abschnitten (Klang, Spiel,
-  Darstellung), Wertanzeige je Regler, "Neu starten" am unteren Rand und
-  einem "x" zum Ausblenden.
+  dunkle Spalte ueber die gesamte Fensterhoehe, mit Abschnitten (Gameplay Core,
+  Klang, Spiel, Darstellung, Halbton), Wertanzeige je Regler, "Neu starten" am
+  unteren Rand und einem "x" zum Ausblenden. Die Wertanzeige ist ein direkt
+  editierbares Zahlenfeld: ein Klick setzt den Cursor und waehlt den Wert aus,
+  Enter oder Fokusverlust uebernehmen die Eingabe und begrenzen sie auf den
+  erlaubten Bereich.
 - **Schrittweiser Verlust**: Mehrere Farbwechsel laufen nacheinander im
   Abstand des Reglers "Verlust-Schritt (ms)" (Standard 25 ms). So ist zu
   sehen, wie die Zellen eine nach der anderen fallen.
+- **Grauer Zugverlust**: Wird die gezogene Zelle grau (Zellwert unter der
+  Neutral-Schwelle), droht derselbe Zugverlust wie bei einem Verlust an die
+  Gegnerfarbe: Pitch-Down und Rettungszeit. Wird sie nicht rechtzeitig wieder
+  stark genug, geht der Zug an den Gegner.
 - **CMYK-Halbton**: Ein bildschirmweiter Effekt (`shaders/halftone.gdshader`,
   gesteuert von `view/halftone_overlay.gd`, nach dem "Canvas Item Halftone
   Shader" von OskarGosbol) zerlegt das Spiel in CMYK. Jede Druckfarbe bekommt

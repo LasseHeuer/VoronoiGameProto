@@ -19,7 +19,7 @@ const TITLE_COLOR := Color("#f2f4f8")
 const CLOSE_COLOR := Color("#c9cfda")
 const LABEL_WIDTH := 130.0
 const SLIDER_WIDTH := 104.0
-const VALUE_WIDTH := 38.0
+const VALUE_WIDTH := 46.0
 const ROW_FONT_SIZE := 12
 const ROW_HEIGHT := 18.0
 
@@ -79,6 +79,8 @@ class SectionHeaderButton extends Button:
 var _config: GameConfig
 ## Bedienelement je Schema-Key.
 var _controls := {}
+## Zahlenfeld je Regler-Key (direkt editierbar).
+var _value_fields := {}
 var _rows_by_key := {}
 ## Zeilen je Rubrik und ihr Ein-/Ausklappzustand.
 var _rows_by_group := {}
@@ -98,14 +100,17 @@ func setup(config: GameConfig) -> void:
 	_restart_button.pressed.connect(func(): restart_requested.emit())
 	for group in GameConfig.SETTING_GROUPS:
 		var choices := _choices_for(group)
+		var colors := _colors_for(group)
 		var entries := _entries_for(group)
-		if choices.is_empty() and entries.is_empty():
+		if choices.is_empty() and colors.is_empty() and entries.is_empty():
 			continue
 		_current_group = group
 		_section_expanded[group] = false
 		_rows.add_child(_make_section(group))
 		for entry in choices:
 			_build_choice(entry)
+		for entry in colors:
+			_build_color(entry)
 		for entry in entries:
 			if entry.has("min"):
 				_build_slider(entry)
@@ -118,6 +123,15 @@ func setup(config: GameConfig) -> void:
 func _choices_for(group: String) -> Array:
 	var out: Array = []
 	for entry in GameConfig.CHOICES:
+		if String(entry.get("group", "")) == group:
+			out.append(entry)
+	return out
+
+
+## Alle Farbwaehler einer Gruppe.
+func _colors_for(group: String) -> Array:
+	var out: Array = []
+	for entry in GameConfig.COLORS:
 		if String(entry.get("group", "")) == group:
 			out.append(entry)
 	return out
@@ -154,6 +168,23 @@ func _build_choice(entry: Dictionary) -> void:
 	_controls[key] = option
 
 
+func _build_color(entry: Dictionary) -> void:
+	var key: String = entry["key"]
+	var row := _make_row(entry["label"])
+	var picker := ColorPickerButton.new()
+	picker.edit_alpha = false
+	picker.tooltip_text = "Farbe waehlen"
+	picker.custom_minimum_size = Vector2(SLIDER_WIDTH + VALUE_WIDTH, ROW_HEIGHT)
+	picker.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	picker.color = Color(String(_config.get(key)))
+	picker.color_changed.connect(func(color: Color):
+		var value := "#" + color.to_html(false)
+		_config.set(key, value)
+		value_changed.emit(key, value))
+	row.add_child(picker)
+	_controls[key] = picker
+
+
 func _build_slider(entry: Dictionary) -> void:
 	var key: String = entry["key"]
 	var is_int: bool = entry.get("is_int", false)
@@ -166,16 +197,23 @@ func _build_slider(entry: Dictionary) -> void:
 	slider.custom_minimum_size = Vector2(SLIDER_WIDTH, ROW_HEIGHT)
 	slider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	slider.value = float(_config.get(key))
-	var value_label := Label.new()
-	value_label.custom_minimum_size = Vector2(VALUE_WIDTH, 0.0)
-	value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	value_label.add_theme_font_size_override("font_size", ROW_FONT_SIZE)
-	value_label.text = _format_value(slider.value, is_int, base_step)
+	var field := LineEdit.new()
+	field.custom_minimum_size = Vector2(VALUE_WIDTH, 0.0)
+	field.alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	field.select_all_on_focus = true
+	field.add_theme_font_size_override("font_size", ROW_FONT_SIZE)
+	field.text = _format_value(slider.value, is_int, base_step)
 	slider.value_changed.connect(func(value: float):
 		var new_value: Variant = int(round(value)) if is_int else value
 		_config.set(key, new_value)
-		value_label.text = _format_value(value, is_int, slider.step)
+		field.text = _format_value(value, is_int, slider.step)
 		value_changed.emit(key, new_value))
+	# Das Zahlenfeld ist direkt editierbar: Klick setzt den Cursor und waehlt den
+	# Wert aus, Enter oder Fokusverlust uebernehmen die Eingabe.
+	field.text_submitted.connect(func(_text: String):
+		_apply_field(key, field, slider, is_int))
+	field.focus_exited.connect(func():
+		_apply_field(key, field, slider, is_int))
 	# Rechtsklick setzt den Regler auf den Werkswert zurueck. Mit gedrueckter
 	# Umschalttaste wird der Schritt zehnmal feiner, damit sich kleine Werte
 	# genau einstellen lassen.
@@ -191,10 +229,29 @@ func _build_slider(entry: Dictionary) -> void:
 			slider.step = base_step
 		elif event is InputEventWithModifiers:
 			slider.step = _fine_step(base_step) if event.shift_pressed else base_step
-		value_label.text = _format_value(slider.value, is_int, slider.step))
+		field.text = _format_value(slider.value, is_int, slider.step))
 	row.add_child(slider)
-	row.add_child(value_label)
+	row.add_child(field)
 	_controls[key] = slider
+	_value_fields[key] = field
+
+
+## Uebernimmt die Eingabe aus dem Zahlenfeld: ungueltige Texte fallen auf den
+## Reglerwert zurueck, gueltige werden auf den erlaubten Bereich begrenzt.
+func _apply_field(key: String, field: LineEdit, slider: HSlider, is_int: bool) -> void:
+	var text := field.text.strip_edges()
+	var value := slider.value
+	if text.is_valid_float():
+		value = clampf(text.to_float(), slider.min_value, slider.max_value)
+		if is_int:
+			value = round(value)
+	var previous := slider.value
+	slider.value = value
+	if is_equal_approx(previous, slider.value):
+		var new_value: Variant = int(round(value)) if is_int else value
+		_config.set(key, new_value)
+		field.text = _format_value(slider.value, is_int, slider.step)
+		value_changed.emit(key, new_value)
 
 
 func _build_toggle(entry: Dictionary) -> void:
@@ -206,13 +263,6 @@ func _build_toggle(entry: Dictionary) -> void:
 	check.button_pressed = bool(_config.get(key))
 	check.toggled.connect(func(pressed: bool):
 		_config.set(key, pressed)
-		if key == "show_flow":
-			if not pressed:
-				_config.show_all_flows = false
-				var all_flows: CheckBox = _controls.get("show_all_flows")
-				if all_flows != null:
-					all_flows.button_pressed = false
-			_apply_visibility()
 		value_changed.emit(key, pressed))
 	row.add_child(check)
 	_controls[key] = check
@@ -228,16 +278,12 @@ func _toggle_section(group: String) -> void:
 	_apply_visibility()
 
 
-## Sichtbarkeit aller Zeilen: nur in ausgeklappten Rubriken, die Sonderzeile
-## "Flows fuer alle Zellen" zusaetzlich nur bei aktivem "Flow anzeigen".
+## Sichtbarkeit aller Zeilen: nur in ausgeklappten Rubriken.
 func _apply_visibility() -> void:
 	for group in _rows_by_group:
 		var expanded: bool = bool(_section_expanded.get(group, false))
 		for row in _rows_by_group[group]:
 			row.visible = expanded
-	if _rows_by_key.has("show_all_flows") and _config != null:
-		var all_flows: Control = _rows_by_key["show_all_flows"]
-		all_flows.visible = all_flows.visible and bool(_config.show_flow)
 
 
 func _make_row(label_text: String) -> HBoxContainer:

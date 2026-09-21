@@ -39,6 +39,9 @@ var _hover_dirty := false
 var _hover_cell := -1
 var _loss_deadline_ms := -1.0
 var _loss_active := false
+## Die gezogene Zelle ist grau (Zellwert unter der Neutral-Schwelle). Das droht
+## den Zugverlust genauso wie ein Farbverlust. Wird von app/game_app.gd gesetzt.
+var _drag_cell_neutral := false
 
 
 func setup(p_board: BoardState, p_config: GameConfig) -> void:
@@ -56,6 +59,17 @@ func dragged_index() -> int:
 
 func dragged_player_color() -> String:
 	return _drag_player_color
+
+
+## Droht der gezogenen Zelle ein Zugverlust?
+func is_loss_active() -> bool:
+	return _loss_active
+
+
+## Meldet, ob die gezogene Zelle grau ist. Grau ist kein Farbwechsel und muss
+## daher getrennt gemeldet werden (app/game_app.gd berechnet den Zellwert).
+func set_drag_cell_neutral(value: bool) -> void:
+	_drag_cell_neutral = value
 
 
 func update_transform(viewport_size: Vector2) -> void:
@@ -88,6 +102,9 @@ func _on_press(screen_pos: Vector2) -> void:
 		_dragged_index = hit
 		_successful_drag = false
 		_color_switched_automatically = false
+		_drag_cell_neutral = false
+		_loss_active = false
+		_loss_deadline_ms = -1.0
 		_drag_start = board.points[hit]
 		_drag_player_color = board.active_color if config.alternating_moves \
 			else board.cell_color(hit)
@@ -112,12 +129,13 @@ func _on_release() -> void:
 	var completed_move := _successful_drag
 	var completed_color := _drag_player_color
 	var lost_without_rescue := _loss_active \
-		and board.cell_color(_dragged_index) != board.active_color
+		and (board.cell_color(_dragged_index) != board.active_color or _drag_cell_neutral)
 	if lost_without_rescue:
 		_finish_automatic_switch()
 		released_index = -1
 	_loss_active = false
 	_loss_deadline_ms = -1.0
+	_drag_cell_neutral = false
 	_dragging = false
 	_dragged_index = -1
 	if config != null and config.alternating_moves:
@@ -190,24 +208,38 @@ func consume_pending_spread() -> void:
 ## leisen Hover-Toene). Die uebergebene Geometrie stammt aus dem letzten
 ## Tick: im Ruhezustand aendert sie sich nicht, sonst ist sie maximal einen
 ## Tick alt. Ein laufender Drag erzeugt keine Hover-Toene.
-func update_hover(plain: Voronoi) -> void:
+##
+## `plain` liefert den naechstgelegenen Punkt, `display` die tatsaechlich
+## gezeichnete Zelle (mit Dummy-Punkten). Getroffen wird an der gezeichneten
+## Zelle, damit auch grosse Randzellen ueberall erkannt werden.
+func update_hover(plain: Voronoi, display: Voronoi = null) -> void:
 	if not _hover_dirty:
 		return
 	_hover_dirty = false
 	if plain == null or _dragging or _pending_click:
 		return
-	var index := -1
-	var candidate := plain.delaunay().find(_cursor.x, _cursor.y)
-	if candidate >= 0:
-		var poly := plain.cell_polygon(candidate)
-		if poly.size() >= 3 and BoardGeometry.point_in_polygon(_cursor, poly):
-			index = candidate
+	var shown: Voronoi = display if display != null else plain
+	var index := _cell_at(plain, shown, _cursor)
 	if index == _hover_cell:
 		return
 	_hover_cell = index
 	board.hovered_index = index
 	if index >= 0:
 		hover_cell_changed.emit(index)
+
+
+## Zelle unter dem Zeiger, geprueft an der angezeigten Geometrie.
+func _cell_at(plain: Voronoi, shown: Voronoi, point: Vector2) -> int:
+	var candidate := plain.delaunay().find(point.x, point.y)
+	if candidate >= 0 and candidate < shown.real_count:
+		var poly := shown.cell_polygon(candidate)
+		if poly.size() >= 3 and BoardGeometry.point_in_polygon(point, poly):
+			return candidate
+	for i in range(shown.real_count):
+		var poly := shown.cell_polygon(i)
+		if poly.size() >= 3 and BoardGeometry.point_in_polygon(point, poly):
+			return i
+	return -1
 
 
 ## Bewegung des gezogenen Punktes (mousemove-Aequivalent), einmal pro Tick.
@@ -267,18 +299,24 @@ func apply_drag_motion() -> void:
 
 
 ## Meldet den Verlust der gezogenen Zelle und startet deren Rettungszeit.
+## Ein bereits laufender Verlust wird nicht erneut gemeldet: sonst wuerde eine
+## dauerhaft graue Zelle die Rettungszeit endlos verlaengern.
 func notify_drag_cell_lost(cell_index: int) -> void:
 	if not config.alternating_moves or not _dragging or cell_index != _dragged_index:
+		return
+	if _loss_active:
 		return
 	_loss_active = true
 	_loss_deadline_ms = float(Time.get_ticks_msec()) + config.loss_rescue_ms
 
 
 ## Gibt 1 bei Rettung, -1 bei abgelaufener Rettungszeit und 0 sonst zurueck.
+## Gerettet ist die Zelle nur, wenn sie die aktive Farbe traegt und nicht grau
+## ist. Eine graue Zelle gilt wie eine fremdgefaerbte als verloren.
 func update_drag_rescue(now_ms: float) -> int:
 	if not _loss_active or not _dragging or _dragged_index < 0:
 		return 0
-	if board.cell_color(_dragged_index) == board.active_color:
+	if board.cell_color(_dragged_index) == board.active_color and not _drag_cell_neutral:
 		_loss_active = false
 		_loss_deadline_ms = -1.0
 		return 1
@@ -292,12 +330,16 @@ func _finish_automatic_switch() -> void:
 	if _dragged_index < 0:
 		return
 	var new_color := board.cell_color(_dragged_index)
+	if new_color == "" or new_color == board.active_color:
+		# Graue bzw. farblose Zelle: der Zug geht an den Gegner.
+		new_color = BoardState.opponent_color(board.active_color)
 	drag_tone_ramp_down_requested.emit(_dragged_index)
 	drag_tones_stop_requested.emit(_dragged_index)
 	_dragging = false
 	_dragged_index = -1
 	_loss_active = false
 	_loss_deadline_ms = -1.0
+	_drag_cell_neutral = false
 	board.active_color = new_color
 	_color_switched_automatically = true
 	board.clear_drag_visuals()
@@ -313,25 +355,46 @@ func _is_too_close() -> bool:
 	return false
 
 
-## Blinkintensitaet aus dem summierten relativen Einfluss der Drag-Zelle.
+## Blinkintensitaet aus dem Kraftverhaeltnis an der Drag-Zelle. Je kleiner der
+## eigene Vorsprung gegenueber dem gegnerischen Zufluss, desto naeher die
+## Uebernahme.
 func _takeover_warning(main: Voronoi) -> float:
-	if main == null:
+	if main == null or _dragged_index < 0:
 		return 0.0
 	var geometry := CellGeometry.from_voronoi(main, true)
 	var ids := board.color_ids()
-	var total := 0.0
-	var has_opponent_pressure := board.drag_opponent_neighbor >= 0 \
-		and board.drag_opponent_neighbor_area > main.area(_dragged_index)
-	if _dragged_index >= 0 and _dragged_index < geometry.neighbors.size():
-		for neighbor in geometry.neighbors[_dragged_index]:
-			var value := Territories.relative_neighbor_value(
-				geometry, ids, _dragged_index, neighbor)
-			total += value
-			if value < 0.0:
-				has_opponent_pressure = true
-	if not has_opponent_pressure:
+	if _dragged_index >= ids.size():
 		return 0.0
-	return clampf((GameConfig.BLINK_WARN_VALUE - total) / GameConfig.BLINK_WARN_VALUE, 0.0, 1.0)
+	var own_id := int(ids[_dragged_index])
+	if own_id == 0:
+		return 0.0
+	var field := Influence.distribute(geometry, ids, board.influence_roots(),
+		config.influence_start_strength)
+	var values: PackedFloat32Array = field["values"]
+	var edges: Dictionary = field["edges"]
+	if not _is_reached(geometry, edges, geometry.count(), _dragged_index):
+		return 0.0
+	var signed := values[_dragged_index]
+	var own := signed if own_id == 1 else -signed
+	var enemy := -own
+	own = maxf(own, 0.0)
+	enemy = maxf(enemy, 0.0)
+	var balance := (own - enemy) / maxf(maxf(own, enemy), 0.001)
+	var warn_ratio := GameConfig.BLINK_WARN_VALUE / GameConfig.INFLUENCE_START_STRENGTH
+	return clampf((warn_ratio - balance) / warn_ratio, 0.0, 1.0)
+
+
+## Wird die Zelle von einem groesseren Nachbarn gespeist? Nur dann kann sie
+## ueberhaupt kippen; unversorgte Zellen warnen nie.
+func _is_reached(geometry: CellGeometry, edges: Dictionary, count: int, cell: int) -> bool:
+	if cell < 0 or cell >= count:
+		return false
+	for neighbor in geometry.neighbors[cell]:
+		if neighbor < 0 or neighbor >= count:
+			continue
+		if edges.has(neighbor * count + cell):
+			return true
+	return false
 
 
 ## Groesste gleich- bzw. gegnerisch gefaerbte Nachbarn fuer die Warnung vor

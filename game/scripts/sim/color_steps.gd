@@ -41,7 +41,8 @@ func advance(now_ms: float, interval_ms: float, board: BoardState, voronoi: Voro
 	if _steps.is_empty():
 		var candidates := Territories.color_change_steps(
 			CellGeometry.from_voronoi(voronoi, true), board.color_ids(), iterations,
-			Territories.COLOR_SWITCH_MARGIN_RATIO, board.influence_roots())
+			Territories.COLOR_SWITCH_MARGIN_RATIO, board.influence_roots(),
+			board.influence_start_strength)
 		if candidates.is_empty():
 			return -1
 		# Nur den aktuell besten Wechsel vormerken. Die restliche Liste wird

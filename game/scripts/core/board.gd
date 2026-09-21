@@ -23,6 +23,10 @@ var cell_colors := PackedStringArray()
 var influence_root1 := -1
 var influence_root2 := -1
 
+## Tonmenge der groessten Zelle des Bretts (Kraftverteilung). Wird aus der
+## Einstellung uebernommen und ohne Neustart wirksam.
+var influence_start_strength := GameConfig.INFLUENCE_START_STRENGTH
+
 ## Aktuell ziehender Spieler (Farbe).
 var active_color := ""
 

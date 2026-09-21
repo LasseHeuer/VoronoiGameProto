@@ -81,6 +81,7 @@ func restart() -> void:
 	_was_dragging = false
 	board.dummy_points = Territories.generate_dummy_points(config.border_margin)
 	board.use_dummy_points = config.dummy_points
+	board.influence_start_strength = config.influence_start_strength
 	board.reset_stamina(config)
 	Territories.init_on_new_game(board, config, rng)
 	voronoi_plain = Voronoi.from_points(board.points, BOARD_RECT)
@@ -107,8 +108,9 @@ func _physics_process(_delta: float) -> void:
 	_was_dragging = board_input.is_dragging()
 
 	# 1b) Hover-Toene. Nutzt die Geometrie des letzten Ticks: im Ruhezustand
-	#     ist sie unveraendert, sonst maximal einen Tick alt.
-	board_input.update_hover(voronoi_plain)
+	#     ist sie unveraendert, sonst maximal einen Tick alt. Getroffen wird an
+	#     der gezeichneten Geometrie (mit Dummy-Punkten).
+	board_input.update_hover(voronoi_plain, voronoi_main)
 
 	if _resting and not board_input.is_dragging() and not board_input.has_pending_click():
 		# Nichts hat sich geaendert: die komplette Neuberechnung entfaellt.
@@ -162,6 +164,14 @@ func _physics_process(_delta: float) -> void:
 			and lost == board_input.dragged_index():
 			audio.pitch_down(lost, voronoi_plain)
 			board_input.notify_drag_cell_lost(lost)
+	#    Wird die gezogene Zelle grau, droht derselbe Zugverlust wie bei einem
+	#    Verlust an die gegnerische Farbe: Pitch-Down und Rettungszeit.
+	if board_input.is_dragging():
+		var neutral := _dragged_cell_is_neutral(voronoi_main)
+		board_input.set_drag_cell_neutral(neutral)
+		if neutral and not board_input.is_loss_active():
+			audio.pitch_down(board_input.dragged_index(), voronoi_plain)
+			board_input.notify_drag_cell_lost(board_input.dragged_index())
 	var rescue_state := board_input.update_drag_rescue(float(Time.get_ticks_msec()))
 	if rescue_state == 1:
 		audio.pitch_up(board_input.dragged_index(), voronoi_plain)
@@ -202,6 +212,22 @@ func _update_blink(delta: float) -> void:
 	board.drag_blink = 1.0 - absf(_blink_phase * 2.0 - 1.0)
 
 
+## Ist die gezogene Zelle grau? Eine graue Zelle zaehlt nicht zum Territorium
+## und droht damit denselben Zugverlust wie ein Verlust an die Gegnerfarbe.
+func _dragged_cell_is_neutral(voronoi: Voronoi) -> bool:
+	var dragged := board_input.dragged_index()
+	if voronoi == null or dragged < 0:
+		return false
+	if board.cell_color(dragged) == "":
+		return true
+	var geometry := CellGeometry.from_voronoi(voronoi, true)
+	var values := Influence.cell_values(geometry, board.color_ids(), board.influence_roots(),
+		config.influence_start_strength)
+	if dragged >= values.size():
+		return false
+	return Influence.is_neutral(values[dragged])
+
+
 func _apply_view_transform() -> void:
 	var viewport_size := get_viewport().get_visible_rect().size
 	var transform := BoardTransform.for_viewport(viewport_size)
@@ -233,6 +259,8 @@ func _on_setting_changed(key: String, value: Variant) -> void:
 		"stamina":
 			board.stamina_player1 = minf(board.stamina_player1, config.stamina)
 			board.stamina_player2 = minf(board.stamina_player2, config.stamina)
+		"influence_start_strength":
+			board.influence_start_strength = config.influence_start_strength
 	if key.begins_with("halftone_"):
 		halftone_overlay.apply()
 

@@ -192,6 +192,42 @@ func test_cell_fill_colors_cover_every_cell() -> void:
 	assert_ne(colors[0], colors[1], "die beiden Farben bleiben unterscheidbar")
 
 
+## Zellen unter der Neutral-Schwelle werden grau statt in Spielerfarbe
+## gezeichnet.
+func test_low_value_cells_are_drawn_neutral() -> void:
+	var board := BoardState.new()
+	board.points = PackedVector2Array([Vector2(300.0, 300.0), Vector2(600.0, 300.0)])
+	board.dummy_points = PackedVector2Array()
+	board.reset_colors()
+	board.set_cell_color(0, GameConfig.COLOR_PLAYER1)
+	board.set_cell_color(1, GameConfig.COLOR_PLAYER1)
+	var voronoi := Voronoi.from_points(board.points, Rect2(0.0, 0.0, 900.0, 600.0))
+	var config := GameConfig.new()
+	var renderer := BoardRenderer.new()
+	add_child_autofree(renderer)
+	renderer.set_board_state(board, config, voronoi)
+	renderer._signed_values = PackedFloat32Array([100.0, 5.0])
+
+	var colors := renderer._cell_fill_colors(2)
+	assert_eq(colors[1], config.cell_empty_color, "schwache Zelle wird grau")
+	assert_ne(colors[0], config.cell_empty_color, "starke Zelle behaelt Spielerfarbe")
+
+
+## Die Frontlinie laeuft nur um die in Spielerfarbe gezeichneten Zellen; eine
+## neutrale Nachbarzelle zaehlt nicht zum Territorium.
+func test_territory_ignores_neutral_cells() -> void:
+	var setup := _two_cell_territory()
+	var renderer: BoardRenderer = setup[0]
+	var voronoi: Voronoi = setup[2]
+	renderer._signed_values = PackedFloat32Array([100.0, 1.0, -100.0])
+
+	var regions := renderer._merge_cells(GameConfig.COLOR_PLAYER1)
+	assert_eq(regions.size(), 1, "eine Flaeche")
+	var area := absf(BoardGeometry.signed_polygon_area(regions[0]))
+	assert_almost_eq(area, voronoi.area(0), 0.5,
+		"nur die starke Zelle zaehlt zum Territorium")
+
+
 ## Zeichnet ein Brett mit Frontlinien, Abrundung, Schatten, Hover und
 ## Blink-Warnung: der Durchlauf darf keine Fehler erzeugen (z. B. ungueltige
 ## Polygone in den abgerundeten Ecken).
@@ -225,16 +261,23 @@ func test_drawing_a_full_frame_runs_without_errors() -> void:
 
 	renderer.queue_redraw()
 	await wait_process_frames(3)
-	config.show_all_flows = true
+	config.show_all_cell_numbers = true
+	renderer.queue_redraw()
+	await wait_process_frames(3)
+	config.show_flow = false
+	renderer.queue_redraw()
+	await wait_process_frames(3)
+	config.show_all_cell_numbers = false
+	config.show_cell_numbers = true
 	renderer.queue_redraw()
 	await wait_process_frames(3)
 
 	assert_true(true, "das Zeichnen laeuft ohne Fehler durch")
 
 
-## Der gegnerische Flow startet an der echten Front: die Zelle direkt vor dem
-## Fokus ist ein angrenzender Gegner und keine gleichfarbige Zelle.
-func test_enemy_flow_starts_at_the_front() -> void:
+## Das Kraftfeld zeigt an jeder Grenze von der groesseren zur kleineren Zelle;
+## die groesste Zelle je Spieler traegt die Tonmenge x.
+func test_flow_arrows_point_from_larger_to_smaller_cells() -> void:
 	var config := GameConfig.new()
 	config.cell_count = 16
 	var board := BoardState.new()
@@ -247,30 +290,22 @@ func test_enemy_flow_starts_at_the_front() -> void:
 	renderer.set_board_state(board, config, voronoi)
 
 	var geometry := CellGeometry.from_voronoi(voronoi, true)
-	var ids := board.color_ids()
-	var roots := Influence.resolve_roots(geometry, ids, board.influence_roots())
-	var flows := {
-		1: Influence.flow(geometry, roots[0]),
-		2: Influence.flow(geometry, roots[1]),
-	}
+	var values := Influence.cell_values(geometry, board.color_ids(), board.influence_roots(),
+		config.influence_start_strength)
 	var checked := 0
-	for focus in range(geometry.count()):
-		var own_id := int(ids[focus])
-		if own_id == 0 or not renderer._has_enemy_front(geometry, ids, focus):
-			continue
-		var enemy_id := 2 if own_id == 1 else 1
-		var enemy_root: int = roots[enemy_id - 1]
-		if enemy_root < 0:
-			continue
-		var chain := renderer._enemy_chain(geometry, ids, flows[enemy_id], enemy_root, focus, enemy_id)
-		assert_gt(chain.size(), 1, "die Front hat einen gegnerischen Weg")
-		var before_focus: int = chain[chain.size() - 2]
-		assert_eq(int(ids[before_focus]), enemy_id,
-			"die Zelle vor dem Fokus ist ein Gegner")
-		assert_true(geometry.neighbors[focus].has(before_focus),
-			"die Gegnerzelle grenzt an den Fokus")
-		checked += 1
-	assert_gt(checked, 0, "es gibt mindestens eine Front")
+	for i in range(geometry.count()):
+		for neighbor in geometry.neighbors[i]:
+			if neighbor < 0 or neighbor >= geometry.count():
+				continue
+			if geometry.areas[neighbor] >= geometry.areas[i]:
+				continue
+			if renderer._boundary_midpoint(i, neighbor).is_finite():
+				checked += 1
+	assert_gt(checked, 0, "es gibt mindestens eine bergab gerichtete Kante")
+	assert_almost_eq(values[board.influence_root1], config.influence_start_strength, 0.5,
+		"die groesste Zelle von Spieler 1 traegt x")
+	assert_almost_eq(values[board.influence_root2], -config.influence_start_strength, 0.5,
+		"die groesste Zelle von Spieler 2 traegt -x")
 
 
 ## Das Sieger-Popup zeichnet fuer beide Farben mit der geladenen Schrift.
